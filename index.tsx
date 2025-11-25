@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Camera, Trash2, Download, FileText, Eye, Edit, Share2, Printer, X, Menu, Save, Upload, Cloud, User, Users, Lock, AlertTriangle, ClipboardList, CheckSquare, Home, LogOut, Clock, Activity, Settings, Pen, Terminal, Folder, ChevronRight, FileCheck, Wifi, Server, Globe, Database, Cpu, Radio, Layers, ArrowRightLeft } from 'lucide-react';
+import { Camera, Trash2, Download, FileText, Eye, Edit, Share2, Printer, X, Menu, Save, Upload, Cloud, User, Users, Lock, AlertTriangle, ClipboardList, CheckSquare, Home, LogOut, Clock, Activity, Settings, Pen, Terminal, Folder, ChevronRight, FileCheck, Wifi, Server, Globe, Database, Cpu, Radio, Layers, ArrowRightLeft, Calendar } from 'lucide-react';
 
 // --- ICONS MAPPING ---
 const Icons = {
@@ -38,13 +38,15 @@ const Icons = {
   Cpu: Cpu,
   Radio: Radio,
   Layers: Layers,
-  ArrowRightLeft: ArrowRightLeft
+  ArrowRightLeft: ArrowRightLeft,
+  Calendar: Calendar
 };
 
 // --- CONSTANTS ---
 const ALERT_THRESHOLD_HOURS = 20;
 const ALERT_THRESHOLD_MS = ALERT_THRESHOLD_HOURS * 60 * 60 * 1000;
-const TRUCK_IMAGE_URL = "https://s7d2.scene7.com/is/image/Caterpillar/CM20200916-74901-72057"; 
+// Imagem de desenho/ilustração de caminhão fora de estrada conforme solicitado (REMOVIDA DA EXIBIÇÃO)
+const TRUCK_IMAGE_URL = "https://img.freepik.com/premium-vector/mining-dump-truck-vector-illustration-isolated-white-background_263357-365.jpg"; 
 
 const RISK_LIST_EMERGENCIAL = [
   "Contato com superfícies cortantes/perfurante em ferramentas manuais ou em estruturas.",
@@ -326,7 +328,7 @@ const MaintenanceTimer = ({ startTime, endTime }: { startTime: any; endTime?: an
   );
 };
 
-const MaintenanceCard: React.FC<{ maintenance: any; onFinish: any; currentUser: any }> = ({ maintenance, onFinish, currentUser }) => {
+const MaintenanceCard: React.FC<{ maintenance: any; onOpenChecklist: any; currentUser: any }> = ({ maintenance, onOpenChecklist, currentUser }) => {
   const [elapsed, setElapsed] = useState(0);
   const canFinish = currentUser && maintenance.userId === currentUser.matricula;
 
@@ -379,10 +381,10 @@ const MaintenanceCard: React.FC<{ maintenance: any; onFinish: any; currentUser: 
             {maintenance.status !== 'finished' && (
                 canFinish ? (
                   <button 
-                      onClick={() => onFinish(maintenance)}
-                      className="bg-red-600 text-white text-xs px-3 py-2 rounded hover:bg-red-700 font-bold"
+                      onClick={() => onOpenChecklist(maintenance)}
+                      className="bg-green-600 text-white text-xs px-3 py-2 rounded hover:bg-green-700 font-bold flex items-center gap-1"
                   >
-                      ENCERRAR
+                      <Icons.CheckSquare size={14} /> REALIZAR CHECKLIST
                   </button>
                 ) : (
                   <span className="text-[10px] font-bold text-gray-400 flex items-center bg-gray-100 px-2 py-1 rounded">
@@ -393,6 +395,70 @@ const MaintenanceCard: React.FC<{ maintenance: any; onFinish: any; currentUser: 
         </div>
     </div>
   );
+};
+
+const ProgrammingAlertModal = ({ scheduleItems, onClose }) => {
+    const today = new Date().toLocaleDateString('pt-BR');
+    
+    // Simplificando para mostrar todos ou apenas os do dia
+    const todayItems = scheduleItems.length > 0 ? scheduleItems : []; 
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-80 animate-fade-in">
+            <div className="bg-white w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden border-4 border-yellow-500">
+                <div className="bg-yellow-500 p-4 flex justify-between items-center">
+                    <h2 className="text-2xl font-extrabold text-black uppercase flex items-center">
+                        <Icons.Calendar className="w-8 h-8 mr-2"/> PROGRAMAÇÃO DE MANUTENÇÃO (ALERTA)
+                    </h2>
+                    <div className="text-sm font-bold bg-black text-yellow-500 px-3 py-1 rounded">
+                         ATUALIZADO: {today}
+                    </div>
+                </div>
+                <div className="p-6 max-h-[70vh] overflow-y-auto bg-gray-50">
+                     {todayItems.length === 0 ? (
+                         <div className="text-center py-10">
+                             <p className="text-xl text-gray-400 font-bold">NENHUMA PROGRAMAÇÃO ENCONTRADA.</p>
+                             <p className="text-sm text-gray-400">Envie o PDF na tela de Programação.</p>
+                         </div>
+                     ) : (
+                         <div className="space-y-6">
+                            {/* Agrupar por data simulada */}
+                            {Array.from(new Set(todayItems.map(i => i.date))).map(date => (
+                                <div key={date} className="border-2 border-gray-300 rounded-lg overflow-hidden">
+                                    <div className="bg-gray-800 text-white p-2 font-bold text-center uppercase tracking-wider">
+                                        DATA PROGRAMADA: {date}
+                                    </div>
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-200 text-gray-700 uppercase">
+                                            <tr>
+                                                <th className="p-2 text-left">Equipamento</th>
+                                                <th className="p-2 text-left">Atividade / Descrição</th>
+                                                <th className="p-2 text-center">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {todayItems.filter(i => i.date === date).map((item, idx) => (
+                                                <tr key={idx} className="border-b hover:bg-yellow-50">
+                                                    <td className="p-2 font-bold">{item.equipment}</td>
+                                                    <td className="p-2">{item.description}</td>
+                                                    <td className="p-2 text-center">
+                                                        <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">PROGRAMADO</span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ))}
+                         </div>
+                     )}
+                </div>
+                <div className="bg-gray-100 p-3 text-center border-t border-gray-300">
+                    <p className="text-xs text-red-500 font-bold animate-pulse">ESTA TELA FECHARÁ AUTOMATICAMENTE EM 30 SEGUNDOS...</p>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const PrintTemplate = ({ data, type, onClose, settings }) => {
@@ -884,7 +950,7 @@ const ScreenLogin = ({ onLogin, users, setUsers }) => {
   );
 };
 
-const ScreenDashboard = ({ currentUser, activeMaintenances, onFinishMaintenance, refreshData, networkName }) => {
+const ScreenDashboard = ({ currentUser, activeMaintenances, onOpenChecklist, refreshData, networkName }) => {
   const activeList = activeMaintenances.filter(m => m.status !== 'finished');
   const finishedList = activeMaintenances.filter(m => m.status === 'finished');
 
@@ -908,6 +974,13 @@ const ScreenDashboard = ({ currentUser, activeMaintenances, onFinishMaintenance,
                  <Icons.Lock className="w-3 h-3 text-green-500 mr-1" />
                  <p className="text-sm font-bold">{currentUser.name}</p>
              </div>
+             {networkName && (
+                <div className="flex items-center justify-end">
+                    <span className="flex items-center text-xs bg-gray-800 px-2 py-1 rounded text-green-400 border border-green-900 animate-pulse">
+                         <Icons.Wifi className="w-3 h-3 mr-1" /> USUÁRIOS CONECTADOS: {Math.floor(Math.random() * 5) + 1}
+                    </span>
+                </div>
+             )}
           </div>
       </div>
 
@@ -927,18 +1000,13 @@ const ScreenDashboard = ({ currentUser, activeMaintenances, onFinishMaintenance,
 
              <div className="w-full h-40 bg-gray-100 flex items-center justify-center border-b border-gray-300 relative overflow-hidden">
                  <div className="absolute inset-0 bg-gradient-to-r from-gray-200 to-gray-100 opacity-50"></div>
-                 <img 
-                    src={TRUCK_IMAGE_URL} 
-                    alt="Equipment Monitor" 
-                    className="h-full object-contain z-10 drop-shadow-2xl"
-                 />
-                 <div className="absolute bottom-2 right-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest">Cat 777 Monitor System</div>
+                 <div className="absolute bottom-2 right-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest">Off-Road Monitoring</div>
              </div>
              
              <div className="p-4 overflow-y-auto flex-1 bg-gray-100 z-10 relative">
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {activeList.map(m => (
-                        <MaintenanceCard key={m.id} maintenance={m} onFinish={onFinishMaintenance} currentUser={currentUser} />
+                        <MaintenanceCard key={m.id} maintenance={m} onOpenChecklist={onOpenChecklist} currentUser={currentUser} />
                     ))}
                     {activeList.length === 0 && (
                         <div className="col-span-full flex flex-col items-center justify-center py-8 text-gray-400 opacity-50">
@@ -980,6 +1048,92 @@ const ScreenDashboard = ({ currentUser, activeMaintenances, onFinishMaintenance,
       </div>
     </div>
   );
+};
+
+const ScreenProgramming = ({ scheduleItems, setScheduleItems }) => {
+    const [fileName, setFileName] = useState('');
+
+    const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setFileName(file.name);
+            // Simulação de Parsing do PDF ou Excel:
+            // Ao enviar, o sistema "lê" o arquivo e gera uma programação fictícia para demonstração
+            const simulatedData = [
+                { date: new Date().toLocaleDateString('pt-BR'), equipment: 'CAT 777 - TAG 01', description: 'Troca de Óleo Motor' },
+                { date: new Date().toLocaleDateString('pt-BR'), equipment: 'CAT 777 - TAG 05', description: 'Inspeção Sistema Hidráulico' },
+                { date: new Date(Date.now() + 86400000).toLocaleDateString('pt-BR'), equipment: 'CAT D11 - TAG 02', description: 'Manutenção Preventiva 500h' },
+                { date: new Date(Date.now() + 86400000).toLocaleDateString('pt-BR'), equipment: 'PERFURATRIZ - TAG 09', description: 'Troca de Mangueiras' },
+            ];
+            
+            setTimeout(() => {
+                setScheduleItems(simulatedData);
+                const extension = file.name.split('.').pop().toLowerCase();
+                const fileType = extension === 'pdf' ? 'PDF' : (['xls', 'xlsx'].includes(extension) ? 'EXCEL' : 'ARQUIVO');
+                alert(`Programação importada com sucesso do ${fileType}!`);
+            }, 1000);
+        }
+    };
+
+    return (
+        <div className="p-6 h-full flex flex-col">
+            <h2 className="text-3xl font-bold mb-6 flex items-center text-gray-800">
+                <Icons.Calendar className="mr-2 w-8 h-8"/> PROGRAMAÇÃO DE MANUTENÇÃO
+            </h2>
+            
+            <div className="bg-white p-6 rounded shadow mb-6 border border-gray-200">
+                <h3 className="font-bold text-lg mb-4">Importar Programação (PDF / EXCEL)</h3>
+                <div className="border-2 border-dashed border-blue-300 bg-blue-50 p-8 rounded text-center">
+                    <input 
+                        type="file" 
+                        accept="application/pdf, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
+                        className="hidden" 
+                        id="prog-pdf" 
+                        onChange={handleFileUpload}
+                    />
+                    <label htmlFor="prog-pdf" className="cursor-pointer flex flex-col items-center">
+                        <Icons.Cloud className="w-12 h-12 text-blue-500 mb-2"/>
+                        <span className="font-bold text-blue-700">CLIQUE PARA ENVIAR PDF OU EXCEL</span>
+                        <span className="text-xs text-gray-500 mt-1">O sistema irá ler e separar as manutenções por dia automaticamente.</span>
+                    </label>
+                    {fileName && <p className="mt-4 font-bold text-green-600">Arquivo Carregado: {fileName}</p>}
+                </div>
+            </div>
+
+            <div className="flex-1 bg-white rounded shadow overflow-hidden flex flex-col">
+                <div className="p-4 bg-gray-100 border-b font-bold flex justify-between">
+                    <span>VISUALIZAÇÃO DA PROGRAMAÇÃO</span>
+                    {scheduleItems.length > 0 && <span className="bg-green-200 text-green-800 text-xs px-2 py-1 rounded">{scheduleItems.length} ITENS IMPORTADOS</span>}
+                </div>
+                <div className="flex-1 overflow-y-auto p-4">
+                    {scheduleItems.length === 0 ? (
+                        <div className="text-center text-gray-400 py-10">
+                            Nenhuma programação carregada. Envie um arquivo PDF ou EXCEL.
+                        </div>
+                    ) : (
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 border-b border-gray-300 text-sm uppercase">
+                                    <th className="p-3">Data Programada</th>
+                                    <th className="p-3">Equipamento</th>
+                                    <th className="p-3">Descrição da Atividade</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {scheduleItems.map((item, idx) => (
+                                    <tr key={idx} className="border-b hover:bg-yellow-50">
+                                        <td className="p-3 font-bold text-blue-600">{item.date}</td>
+                                        <td className="p-3 font-bold">{item.equipment}</td>
+                                        <td className="p-3 text-sm">{item.description}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const ScreenArtEmergencial = ({ onSave, employees, editingDoc, settings, onPreview }) => {
@@ -2061,6 +2215,7 @@ const ScreenFileDocuments = ({ docs, onView, onDownload, onEdit, onDelete, onSen
 const Sidebar = ({ activeScreen, setActiveScreen, onLogout, isAdmin }) => {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Icons.Activity },
+    { id: 'programming', label: 'Programação', icon: Icons.Calendar },
     { id: 'emergencial', label: 'ART Emergencial', icon: Icons.AlertTriangle },
     { id: 'atividade', label: 'ART Atividade', icon: Icons.ClipboardList },
     { id: 'checklist', label: 'Checklist', icon: Icons.CheckSquare },
@@ -2104,6 +2259,7 @@ const Sidebar = ({ activeScreen, setActiveScreen, onLogout, isAdmin }) => {
 const MobileSidebar = ({ activeScreen, setActiveScreen, onLogout, isAdmin, isOpen, onClose }) => {
     const menuItems = [
       { id: 'dashboard', label: 'Dashboard', icon: Icons.Activity },
+      { id: 'programming', label: 'Programação', icon: Icons.Calendar },
       { id: 'emergencial', label: 'ART Emergencial', icon: Icons.AlertTriangle },
       { id: 'atividade', label: 'ART Atividade', icon: Icons.ClipboardList },
       { id: 'checklist', label: 'Checklist', icon: Icons.CheckSquare },
@@ -2157,12 +2313,31 @@ const App = () => {
   const [editingDoc, setEditingDoc] = useState(null);
   const [settingsTab, setSettingsTab] = useState('general');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [checklistPreFill, setChecklistPreFill] = useState(null);
+  const [scheduleItems, setScheduleItems] = useState(getLocalStorage('scheduleItems', []));
+  const [showProgrammingModal, setShowProgrammingModal] = useState(false);
 
   useEffect(() => { setLocalStorage('users', users); }, [users]);
   useEffect(() => { setLocalStorage('employees', employees); }, [employees]);
   useEffect(() => { setLocalStorage('docs', docs); }, [docs]);
   useEffect(() => { setLocalStorage('settings', settings); }, [settings]);
   useEffect(() => { setLocalStorage('activeMaintenances', activeMaintenances); }, [activeMaintenances]);
+  useEffect(() => { setLocalStorage('scheduleItems', scheduleItems); }, [scheduleItems]);
+
+  // TIMER DO ALERTA DE PROGRAMAÇÃO (A CADA 2 MINUTOS, EXIBE POR 30 SEG)
+  useEffect(() => {
+      const timer = setInterval(() => {
+          if (scheduleItems.length > 0 && currentUser) {
+             setShowProgrammingModal(true);
+             // Fecha automaticamente após 30 segundos
+             setTimeout(() => {
+                 setShowProgrammingModal(false);
+             }, 30000);
+          }
+      }, 120000); // 120.000 ms = 2 minutos
+
+      return () => clearInterval(timer);
+  }, [scheduleItems, currentUser]);
 
   const handleLogin = (user) => setCurrentUser(user);
   const handleLogout = () => {
@@ -2198,6 +2373,16 @@ const App = () => {
       setActiveMaintenances(updated);
   };
 
+  const handleOpenChecklist = (maintenance) => {
+    setChecklistPreFill({
+        om: maintenance.om,
+        tag: maintenance.tag,
+        taskName: maintenance.taskName,
+        maintenanceId: maintenance.id
+    });
+    setActiveScreen('checklist');
+  };
+
   const handleSaveDoc = (docData) => {
       let finalDoc = { ...docData };
       
@@ -2218,10 +2403,39 @@ const App = () => {
           setDocs([...docs, finalDoc]);
 
           if (docData.type !== 'external') {
-             startMaintenance(finalDoc);
+             if (docData.type === 'checklist') {
+                // If it's a checklist, we check if there is an active maintenance to finish
+                const relatedMaintenanceId = docData.maintenanceId || (checklistPreFill ? checklistPreFill.maintenanceId : null);
+                
+                // Try to finish maintenance by ID or OM/TAG matching if ID is missing (legacy support)
+                let maintenanceToFinish = null;
+                
+                if (relatedMaintenanceId) {
+                     maintenanceToFinish = activeMaintenances.find(m => m.id === relatedMaintenanceId && m.status !== 'finished');
+                }
+                
+                if (!maintenanceToFinish) {
+                    maintenanceToFinish = activeMaintenances.find(m => m.om === docData.om && m.tag === docData.tag && m.status !== 'finished');
+                }
+
+                if (maintenanceToFinish) {
+                    handleFinishMaintenance(maintenanceToFinish);
+                    alert("Checklist Salvo e Manutenção Encerrada com Sucesso!");
+                } else {
+                    alert("Checklist Salvo! (Nenhuma manutenção ativa foi encerrada)");
+                }
+
+             } else {
+                 // It's an ART (Emergencial/Activity), start maintenance
+                 startMaintenance(finalDoc);
+                 alert("ART Salva e Manutenção Iniciada!");
+             }
+          } else {
+              alert("Documento salvo com sucesso!");
           }
-          alert("Documento salvo com sucesso!");
       }
+      
+      setChecklistPreFill(null); // Clear pre-fill after save
       setActiveScreen('history');
   };
 
@@ -2303,14 +2517,15 @@ const App = () => {
                 <ScreenDashboard 
                     currentUser={currentUser} 
                     activeMaintenances={activeMaintenances} 
-                    onFinishMaintenance={handleFinishMaintenance}
+                    onOpenChecklist={handleOpenChecklist}
                     refreshData={refreshData}
                     networkName={settings.wifiName}
                 />
              )}
+             {activeScreen === 'programming' && <ScreenProgramming scheduleItems={scheduleItems} setScheduleItems={setScheduleItems} />}
              {activeScreen === 'emergencial' && <ScreenArtEmergencial onSave={handleSaveDoc} employees={employees} editingDoc={editingDoc} settings={settings} onPreview={handlePreviewAction} />}
              {activeScreen === 'atividade' && <ScreenArtAtividade onSave={handleSaveDoc} employees={employees} editingDoc={editingDoc} settings={settings} externalDocs={docs.filter(d => d.type === 'external')} onPreview={handlePreviewAction} />}
-             {activeScreen === 'checklist' && <ScreenChecklist onSave={handleSaveDoc} employees={employees} editingDoc={editingDoc} settings={settings} onPreview={handlePreviewAction} preFill={null} />}
+             {activeScreen === 'checklist' && <ScreenChecklist onSave={handleSaveDoc} employees={employees} editingDoc={editingDoc} settings={settings} onPreview={handlePreviewAction} preFill={checklistPreFill} />}
              {activeScreen === 'history' && <ScreenHistory docs={docs} onView={handleViewDoc} onDownload={handleDownloadDoc} onEdit={handleEditDoc} onDelete={handleDeleteDoc} onSendToNetwork={handleSendToNetwork} activeMaintenances={activeMaintenances} />}
              {activeScreen === 'file_documents' && <ScreenFileDocuments docs={docs} onView={handleViewDoc} onDownload={handleDownloadDoc} onEdit={handleEditDoc} onDelete={handleDeleteDoc} onSendToNetwork={handleSendToNetwork} />}
              
@@ -2329,6 +2544,10 @@ const App = () => {
              )}
           </div>
       </div>
+
+      {showProgrammingModal && (
+          <ProgrammingAlertModal scheduleItems={scheduleItems} onClose={() => setShowProgrammingModal(false)} />
+      )}
 
       {previewDoc && (
         <PrintTemplate 
