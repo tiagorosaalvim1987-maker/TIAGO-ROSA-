@@ -51,9 +51,10 @@ const Icons = {
 const ALERT_THRESHOLD_HOURS = 20;
 const ALERT_THRESHOLD_MS = ALERT_THRESHOLD_HOURS * 60 * 60 * 1000;
 const PROGRAMMING_ALERT_INTERVAL = 2 * 60 * 1000; // 2 minutes
-const PROGRAMMING_ALERT_DURATION = 10 * 1000; // 10 seconds
+const PROGRAMMING_ALERT_DURATION = 20 * 1000; // 20 seconds
 
 const TRUCK_IMAGE_URL = "https://img.freepik.com/premium-vector/mining-dump-truck-vector-illustration-isolated-white-background_263357-365.jpg"; 
+const VALE_LOGO_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d8/Vale_logo.svg/800px-Vale_logo.svg.png";
 
 const RISK_LIST_EMERGENCIAL = [
   "Contato com superfícies cortantes/perfurante em ferramentas manuais ou em estruturas.",
@@ -544,8 +545,7 @@ const PrintTemplate = ({ data, type, onClose, settings }) => {
                     <tr>
                         <td className="w-24 text-center p-2">
                            <div className="flex flex-col items-center justify-center">
-                               <Icons.Activity className="w-10 h-10 text-gray-800" />
-                               <div className="text-[9px] font-bold mt-1 uppercase tracking-wider">Logo</div>
+                               <img src={VALE_LOGO_URL} alt="Vale" className="w-20 object-contain" />
                            </div>
                         </td>
                         <td className="text-center p-2">
@@ -708,7 +708,7 @@ const PrintTemplate = ({ data, type, onClose, settings }) => {
                             <tbody>
                                 {sys.items.map((item, i) => {
                                     const key = `${sys.name}-${item}`;
-                                    const status = data.checks?.[idx] || 'na';
+                                    const status = data.checks?.[key] || 'na';
                                     const obs = data.obs?.[key];
                                     return (
                                         <tr key={i} className="text-[11px]">
@@ -784,25 +784,21 @@ const PrintTemplate = ({ data, type, onClose, settings }) => {
 };
 
 // --- NEW COMPONENTS ---
+const generateReportText = (maintenance, doc) => {
+    if (!doc) return "Documento não encontrado.";
+    
+    const executantes = doc.signatures ? doc.signatures.map(s => s.name).join(', ') : 'N/A';
+    const pendencias = doc.type === 'checklist' 
+        ? Object.entries(doc.checks || {})
+            .filter(([_, status]) => status === 'nok')
+            .map(([key]) => key)
+            .join(', ')
+        : 'N/A';
+    
+    // Simple logic for deviation: if there are NOK items, there is a deviation
+    const desvio = pendencias && pendencias !== 'N/A' && pendencias.length > 0 ? "SIM" : "NÃO";
 
-const ScreenReports = ({ activeMaintenances, docs, settings }) => {
-    const finishedMaintenances = activeMaintenances.filter(m => m.status === 'finished');
-
-    const generateReportText = (maintenance, doc) => {
-        if (!doc) return "Documento não encontrado.";
-        
-        const executantes = doc.signatures ? doc.signatures.map(s => s.name).join(', ') : 'N/A';
-        const pendencias = doc.type === 'checklist' 
-            ? Object.entries(doc.checks || {})
-                .filter(([_, status]) => status === 'nok')
-                .map(([key]) => key)
-                .join(', ')
-            : 'N/A';
-        
-        // Simple logic for deviation: if there are NOK items, there is a deviation
-        const desvio = pendencias && pendencias !== 'N/A' && pendencias.length > 0 ? "SIM" : "NÃO";
-
-        return `📝 RETORNO OM: ${maintenance.om}
+    return `📝 RETORNO OM: ${maintenance.om}
 ▪ TIPO: ${doc.activityType || 'Mecânica'}
 🚜 EQUIPAMENTO: ${maintenance.tag}
 🗓 DADOS: ${new Date(maintenance.endTime).toLocaleDateString('pt-BR')}
@@ -815,23 +811,63 @@ OBSERVAÇÕES: ${doc.correctionDescription || doc.controlSummary || 'Sem observa
 PENDÊNCIAS: ${pendencias || 'Nenhuma'}
 ❗ *DESVIO: ${desvio}
 ▪ STATUS: ENCERRADO`;
+};
+
+const ReportCard: React.FC<{ m: any; doc: any; settings: any }> = ({ m, doc, settings }) => {
+    const [editableText, setEditableText] = useState(generateReportText(m, doc));
+
+    const copyToClipboard = () => {
+         navigator.clipboard.writeText(editableText);
+         alert("Relatório copiado para a área de transferência!");
     };
 
-    const copyToClipboard = (text) => {
-        navigator.clipboard.writeText(text);
-        alert("Relatório copiado para a área de transferência!");
-    };
-
-    const sendToWhatsapp = (text) => {
+    const sendToWhatsapp = () => {
         const number = settings.whatsappNumber;
         if (!number) {
             alert("Configure o número de WhatsApp em Configurações > Geral.");
             return;
         }
-        const encodedText = encodeURIComponent(text);
+        const encodedText = encodeURIComponent(editableText);
         const url = `https://wa.me/${number.replace(/\D/g,'')}?text=${encodedText}`;
         window.open(url, '_blank');
     };
+
+    return (
+        <div className="bg-white border border-gray-300 rounded-lg shadow hover:shadow-lg transition-shadow p-5 flex flex-col h-full">
+            <div className="flex justify-between items-start mb-2 border-b pb-2">
+                <div>
+                    <h3 className="font-bold text-lg">{m.tag}</h3>
+                    <span className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded">OM: {m.om}</span>
+                </div>
+                <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-bold">ENCERRADO</span>
+            </div>
+            
+            <textarea 
+                className="flex-1 text-xs text-gray-800 space-y-1 mb-4 whitespace-pre-line font-mono bg-yellow-50 p-2 rounded border border-yellow-200 h-64 overflow-y-auto resize-none focus:outline-none focus:border-yellow-500"
+                value={editableText}
+                onChange={(e) => setEditableText(e.target.value)}
+            />
+
+            <div className="grid grid-cols-2 gap-2 mt-auto">
+                <button 
+                    onClick={copyToClipboard}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded flex items-center justify-center gap-2 transition-colors text-xs"
+                >
+                    <Icons.Copy size={16} /> COPIAR
+                </button>
+                <button 
+                    onClick={sendToWhatsapp}
+                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded flex items-center justify-center gap-2 transition-colors text-xs"
+                >
+                    <Icons.Whatsapp size={16} /> WHATSAPP
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const ScreenReports = ({ activeMaintenances, docs, settings }) => {
+    const finishedMaintenances = activeMaintenances.filter(m => m.status === 'finished');
 
     return (
         <div className="p-6 h-full flex flex-col">
@@ -845,38 +881,8 @@ PENDÊNCIAS: ${pendencias || 'Nenhuma'}
                     const doc = relatedDocs.find(d => d.type === 'checklist') || relatedDocs[0];
 
                     if (!doc) return null;
-                    const reportText = generateReportText(m, doc);
 
-                    return (
-                        <div key={m.id} className="bg-white border border-gray-300 rounded-lg shadow hover:shadow-lg transition-shadow p-5 flex flex-col">
-                            <div className="flex justify-between items-start mb-2 border-b pb-2">
-                                <div>
-                                    <h3 className="font-bold text-lg">{m.tag}</h3>
-                                    <span className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded">OM: {m.om}</span>
-                                </div>
-                                <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-bold">ENCERRADO</span>
-                            </div>
-                            
-                            <div className="flex-1 text-xs text-gray-600 space-y-1 mb-4 whitespace-pre-line font-mono bg-gray-50 p-2 rounded border border-gray-100 h-48 overflow-y-auto">
-                                {reportText}
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2">
-                                <button 
-                                    onClick={() => copyToClipboard(reportText)}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded flex items-center justify-center gap-2 transition-colors text-xs"
-                                >
-                                    <Icons.Copy size={16} /> COPIAR
-                                </button>
-                                <button 
-                                    onClick={() => sendToWhatsapp(reportText)}
-                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded flex items-center justify-center gap-2 transition-colors text-xs"
-                                >
-                                    <Icons.Whatsapp size={16} /> WHATSAPP
-                                </button>
-                            </div>
-                        </div>
-                    );
+                    return <ReportCard key={m.id} m={m} doc={doc} settings={settings} />;
                 })}
                 {finishedMaintenances.length === 0 && (
                     <div className="col-span-full text-center py-20 bg-white rounded shadow text-gray-400">
@@ -970,14 +976,18 @@ const ScreenProgramming = ({ schedule, setSchedule }) => {
         }
     };
 
-    const filteredSchedule = viewMode === 'panel' 
+    const filteredSchedule = (viewMode === 'panel' 
         ? schedule.filter(item => {
             // Try to match start date logic roughly
             if(!item.startDate) return false;
             // Handle possible different date formats if imported
-            return item.startDate.includes(selectedDate) || item.startDate === selectedDate;
+            // return item.startDate === selectedDate;
+            const today = selectedDate;
+            const start = item.startDate;
+            const end = item.endDate || item.startDate;
+            return today >= start && today <= end;
         })
-        : schedule;
+        : schedule).sort((a, b) => new Date(a.startDate || 0).getTime() - new Date(b.startDate || 0).getTime());
 
     return (
         <div className="p-6 h-full flex flex-col bg-gray-100">
@@ -1134,14 +1144,20 @@ const ProgrammingAlert = ({ schedule, onClose }) => {
     // Filter for today's schedule
     const today = new Date().toISOString().split('T')[0];
     const todaysItems = schedule?.filter(item => {
-        return item.startDate && (item.startDate.includes(today) || item.startDate === today);
+        if (!item.startDate) return false;
+        const start = item.startDate;
+        const end = item.endDate || item.startDate;
+        return today >= start && today <= end;
     }) || [];
 
     if (todaysItems.length === 0) return null;
 
     return (
-        <div className="fixed inset-0 z-[100] bg-black bg-opacity-90 flex flex-col items-center justify-center animate-fade-in text-white p-4" onClick={onClose}>
-            <div className="w-full max-w-6xl bg-yellow-500 text-black rounded-lg shadow-2xl overflow-hidden border-4 border-white transform transition-all scale-100 flex flex-col max-h-screen">
+        <div className="fixed inset-0 z-[100] bg-black bg-opacity-90 flex flex-col items-center justify-center animate-fade-in text-white p-4">
+            <div className="w-full max-w-6xl bg-yellow-500 text-black rounded-lg shadow-2xl overflow-hidden border-4 border-white transform transition-all scale-100 flex flex-col max-h-screen relative">
+                <button onClick={onClose} className="absolute top-4 right-4 bg-white hover:bg-red-500 hover:text-white text-black p-2 rounded-full font-bold z-50 shadow-lg transition-colors border-2 border-black" title="Interromper Alerta">
+                    <Icons.X size={24} />
+                </button>
                 <div className="bg-black text-yellow-500 p-6 text-center shrink-0">
                     <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter flex justify-center items-center gap-4 animate-pulse">
                         <Icons.AlertTriangle className="w-12 h-12 md:w-20 md:h-20" />
@@ -1222,73 +1238,100 @@ const ScreenLogin = ({ onLogin, users, setUsers }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-yellow-500 p-4">
-      <div className="bg-white p-8 rounded-lg shadow-2xl w-96 border-4 border-black relative">
-        <h1 className="text-4xl font-bold text-center mb-6 tracking-tighter">ART <span className="text-yellow-500 bg-black px-2">APP</span></h1>
-        <h2 className="text-center text-gray-600 mb-6">Análise Preliminar da Tarefa</h2>
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-gray-900">
+      {/* BACKGROUND ELEMENTS */}
+      <div className="absolute inset-0 bg-gradient-to-br from-yellow-600 via-gray-900 to-black opacity-80 z-0"></div>
+      <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
+      <div className="absolute bottom-0 w-full h-1/3 bg-gradient-to-t from-black to-transparent z-0"></div>
+      
+      {/* INDUSTRIAL OVERLAY */}
+      <div className="absolute top-10 left-10 w-64 h-64 border-l-4 border-t-4 border-yellow-500 opacity-20 rounded-tl-3xl"></div>
+      <div className="absolute bottom-10 right-10 w-64 h-64 border-r-4 border-b-4 border-yellow-500 opacity-20 rounded-br-3xl"></div>
+
+      <div className="bg-black/80 backdrop-blur-md p-10 rounded-2xl shadow-2xl w-full max-w-md border border-yellow-500/30 relative z-10 animate-in fade-in zoom-in duration-500">
+        <div className="text-center mb-8">
+            <div className="inline-block p-4 rounded-full bg-white mb-4 shadow-lg">
+                <img src={VALE_LOGO_URL} alt="Vale" className="w-24" />
+            </div>
+            <h1 className="text-5xl font-black text-white tracking-tighter mb-1 drop-shadow-lg">ART <span className="text-yellow-500">APP</span></h1>
+            <h2 className="text-gray-400 text-sm font-bold uppercase tracking-widest border-t border-gray-700 pt-2 mt-2">Análise Preliminar da Tarefa</h2>
+        </div>
         
         {!showForgot ? (
-            <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-                <label className="block font-bold mb-1">Matrícula</label>
-                <input 
-                type="text" 
-                className="w-full p-3 border-2 border-black rounded bg-gray-100 focus:bg-white outline-none" 
-                value={matricula} 
-                onChange={e => setMatricula(e.target.value)}
-                />
+            <form onSubmit={handleLogin} className="space-y-5">
+            <div className="space-y-1">
+                <label className="block text-xs font-bold text-yellow-500 uppercase ml-1">Matrícula</label>
+                <div className="relative">
+                    <Icons.User className="absolute left-3 top-3 text-gray-500" size={18} />
+                    <input 
+                    type="text" 
+                    className="w-full pl-10 pr-4 py-3 border border-gray-700 rounded-lg bg-gray-900/50 text-white focus:bg-gray-800 focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all placeholder-gray-600" 
+                    placeholder="Digite sua matrícula"
+                    value={matricula} 
+                    onChange={e => setMatricula(e.target.value)}
+                    />
+                </div>
             </div>
-            <div>
-                <label className="block font-bold mb-1">Senha</label>
-                <input 
-                type="password" 
-                className="w-full p-3 border-2 border-black rounded bg-gray-100 focus:bg-white outline-none"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                />
+            <div className="space-y-1">
+                <label className="block text-xs font-bold text-yellow-500 uppercase ml-1">Senha</label>
+                <div className="relative">
+                    <Icons.Lock className="absolute left-3 top-3 text-gray-500" size={18} />
+                    <input 
+                    type="password" 
+                    className="w-full pl-10 pr-4 py-3 border border-gray-700 rounded-lg bg-gray-900/50 text-white focus:bg-gray-800 focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all placeholder-gray-600"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    />
+                </div>
             </div>
-            <button type="submit" className="w-full bg-black text-white font-bold py-3 rounded hover:bg-gray-800 transition">
-                ENTRAR
+            <button type="submit" className="w-full bg-gradient-to-r from-yellow-500 to-yellow-600 text-black font-black py-4 rounded-lg hover:from-yellow-400 hover:to-yellow-500 transition-all transform hover:scale-[1.02] shadow-lg shadow-yellow-500/20 text-lg uppercase tracking-wide">
+                ENTRAR NO SISTEMA
             </button>
             
             <button 
                 type="button" 
                 onClick={() => setShowForgot(true)}
-                className="block w-full text-center text-xs text-blue-600 hover:underline mt-2"
+                className="block w-full text-center text-xs text-gray-500 hover:text-yellow-400 hover:underline mt-4 transition-colors"
             >
                 Esqueci minha senha
             </button>
 
-            <div className="flex items-center justify-center mt-4 text-green-600 text-xs">
-                <Icons.Lock className="w-3 h-3 mr-1" />
-                <span className="font-bold">Ambiente Seguro (SSL 256-bit)</span>
+            <div className="flex items-center justify-center mt-6 text-green-500 text-[10px] uppercase font-bold tracking-wider bg-black/40 py-2 rounded">
+                <Icons.Lock className="w-3 h-3 mr-2" />
+                Ambiente Seguro (SSL 256-bit)
             </div>
             </form>
         ) : (
-            <div className="space-y-4">
-                <div className="flex items-center mb-4">
-                    <button onClick={() => setShowForgot(false)} className="mr-2 p-1 hover:bg-gray-100 rounded">
+            <div className="space-y-5 animate-in slide-in-from-right duration-300">
+                <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-bold text-xl text-white">Recuperar Acesso</h3>
+                    <button onClick={() => setShowForgot(false)} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition-colors">
                         <Icons.X size={20}/>
                     </button>
-                    <h3 className="font-bold text-lg">Recuperar Senha</h3>
                 </div>
-                <p className="text-sm text-gray-600">Digite sua matrícula para receber instruções de recuperação.</p>
-                <input 
-                    type="text" 
-                    className="w-full p-3 border-2 border-gray-300 rounded bg-gray-50 outline-none focus:border-black"
-                    placeholder="Sua Matrícula"
-                    value={forgotMatricula}
-                    onChange={e => setForgotMatricula(e.target.value)}
-                />
-                <button onClick={handleForgotPassword} className="w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-3 rounded transition">
+                <p className="text-sm text-gray-400 leading-relaxed">Digite sua matrícula abaixo. Enviaremos as instruções de recuperação para o e-mail corporativo cadastrado.</p>
+                
+                <div className="relative">
+                    <Icons.User className="absolute left-3 top-3 text-gray-500" size={18} />
+                    <input 
+                        type="text" 
+                        className="w-full pl-10 pr-4 py-3 border border-gray-700 rounded-lg bg-gray-900/50 text-white focus:border-yellow-500 outline-none placeholder-gray-600"
+                        placeholder="Sua Matrícula"
+                        value={forgotMatricula}
+                        onChange={e => setForgotMatricula(e.target.value)}
+                    />
+                </div>
+                
+                <button onClick={handleForgotPassword} className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition-colors border border-gray-600 hover:border-gray-500">
                     ENVIAR INSTRUÇÕES
                 </button>
             </div>
         )}
         
         {!showForgot && users.length === 0 && (
-          <button onClick={handleCreateAdmin} className="mt-6 w-full text-sm bg-gray-100 py-2 rounded text-gray-600 border border-gray-300 hover:bg-gray-200 font-bold">
-            Cadastrar Administrador Inicial
+          <button onClick={handleCreateAdmin} className="mt-8 w-full text-xs bg-gray-900/50 py-2 rounded text-gray-500 border border-gray-800 hover:bg-gray-800 hover:text-white font-bold transition-colors">
+            Cadastrar Administrador Inicial (Debug)
           </button>
         )}
       </div>
@@ -2498,8 +2541,9 @@ const Sidebar = ({ activeScreen, setActiveScreen, onLogout, isAdmin }) => {
   return (
     <div className="w-64 bg-black text-white h-screen fixed left-0 top-0 flex flex-col shadow-2xl z-40 hidden md:flex">
       <div className="p-6 border-b border-gray-800">
+        <img src={VALE_LOGO_URL} alt="Vale" className="h-8 mb-4" />
         <h1 className="text-2xl font-bold tracking-tighter text-yellow-500 flex items-center">
-          <Icons.Activity className="mr-2"/> ART APP
+          ART APP
         </h1>
         <p className="text-xs text-gray-400 mt-1">Gestão de Segurança</p>
       </div>
@@ -2547,6 +2591,9 @@ const MobileSidebar = ({ activeScreen, setActiveScreen, onLogout, isAdmin, isOpe
             <div className="p-6 border-b border-gray-800 flex justify-between items-center">
                 <h1 className="text-2xl font-bold tracking-tighter text-yellow-500">ART APP</h1>
                 <button onClick={onClose}><Icons.X /></button>
+            </div>
+            <div className="px-6 pb-4 border-b border-gray-800">
+                <img src={VALE_LOGO_URL} alt="Vale" className="h-8" />
             </div>
             <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
                 {menuItems.map(item => (
