@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Camera, Trash2, Download, FileText, Eye, Edit, Share2, Printer, X, Menu, Save, Upload, Cloud, User, Users, Lock, AlertTriangle, ClipboardList, CheckSquare, Home, LogOut, Clock, Activity, Settings, Pen, Terminal, Folder, ChevronRight, FileCheck, Wifi, Server, Globe, Database, Cpu, Radio, Layers, ArrowRightLeft, Calendar, Bell, Copy, Clipboard, FileSpreadsheet, Send, Phone, CloudLightning, File, FileCode, PlayCircle, ChevronLeft, Sun, CloudSun, Haze, CloudDrizzle, CloudRain, Snowflake, CloudRainWind, Wind, CloudCheck, CloudUpload } from 'lucide-react';
+import { HashRouter, Routes, Route, NavLink, useNavigate } from 'react-router-dom';
+import { Camera, Trash2, Download, FileText, Eye, Edit, Share2, Printer, X, Menu, Save, Upload, Cloud, User, Users, Lock, AlertTriangle, ClipboardList, CheckSquare, Home, LogOut, Clock, Activity, Settings, Pen, Terminal, Folder, ChevronRight, FileCheck, Wifi, Server, Globe, Database, Cpu, Radio, Layers, ArrowRightLeft, Calendar, Bell, Copy, Clipboard, FileSpreadsheet, Send, Phone, CloudLightning, File, FileCode, PlayCircle, ChevronLeft, Sun, CloudSun, Haze, CloudDrizzle, CloudRain, Snowflake, CloudRainWind, Wind, CloudCheck, CloudUpload, RotateCcw, QrCode } from 'lucide-react';
 
 // --- ICONS MAPPING ---
 const Icons = {
@@ -64,6 +65,8 @@ const Icons = {
   Wind: Wind,
   CloudCheck: CloudCheck,
   CloudUpload: CloudUpload,
+  Restore: RotateCcw,
+  QrCode: QrCode,
 };
 
 // --- CONSTANTS ---
@@ -142,6 +145,38 @@ const useCachedState = (key, initialValue) => {
 };
 
 
+const getLocalIP = () => {
+  return new Promise((resolve, reject) => {
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      pc.createDataChannel('');
+      pc.createOffer().then(pc.setLocalDescription.bind(pc));
+
+      pc.onicecandidate = (ice) => {
+        if (!ice || !ice.candidate || !ice.candidate.candidate) {
+          return;
+        }
+
+        const candidate = ice.candidate.candidate;
+        const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
+        const ipMatch = candidate.match(ipRegex);
+        
+        if (ipMatch) {
+          const ip = ipMatch[1];
+          if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+            resolve(ip);
+            pc.close();
+          }
+        }
+      };
+      setTimeout(() => reject('Timeout'), 2000); // Fail after 2s
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
+
+
 const getWeatherIcon = (code) => {
     switch(code) {
         case 0: return Icons.Sun;
@@ -172,6 +207,143 @@ const showLocalNotification = (title, body, tag = 'art-notification') => {
 
 
 // --- COMPONENTS ---
+const AutoSaveIndicator = ({ isVisible }) => {
+  if (!isVisible) return null;
+  return (
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-4 py-2 rounded-full shadow-2xl z-[100] animate-in fade-in-50 duration-300 pointer-events-none">
+      <div className="flex items-center gap-2">
+        <Icons.Save size={14} />
+        <span>Rascunho salvo automaticamente.</span>
+      </div>
+    </div>
+  );
+};
+
+const DraftLoadModal = ({ onConfirm, onDiscard }) => {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[200]">
+      <div className="bg-white p-8 rounded-lg shadow-xl max-w-sm w-full text-center animate-in zoom-in-95">
+        <div className="mx-auto bg-yellow-100 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+            <Icons.FileText size={32} className="text-yellow-600" />
+        </div>
+        <h2 className="text-2xl font-bold mb-2">Rascunho Encontrado</h2>
+        <p className="text-gray-600 mb-6">
+          Encontramos um rascunho salvo para este formulário. Deseja continuar de onde parou?
+        </p>
+        <div className="flex flex-col gap-3">
+          <button onClick={onConfirm} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors">
+            Sim, Carregar Rascunho
+          </button>
+          <button onClick={onDiscard} className="w-full bg-transparent text-gray-600 font-bold py-2 rounded-lg hover:bg-gray-100 transition-colors">
+            Não, Descartar e Começar Novo
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const YemReportModal = ({ m, doc, onClose }) => {
+  const [pendencias, setPendencias] = useState('');
+  const [desvio, setDesvio] = useState('');
+  const [status, setStatus] = useState('LIBERADO');
+
+  const generateReportContent = useMemo(() => {
+    const executantes = doc.signatures?.map(s => s.name).join(', ') || 'N/A';
+    
+    let atividades = 'N/A';
+    if (doc.correctionDescription) {
+        atividades = doc.correctionDescription;
+    } else if (doc.type === 'checklist') {
+        atividades = 'Checklist de entrega do equipamento realizado conforme padrões de segurança.';
+    }
+
+    let report = `📝 RELATÓRIO\n\n`;
+    report += `SOBRE:\n${m.om || ''}\n\n`;
+    report += `▪ TIPO: IEM\n\n`;
+    report += `🚜 ⁠*EQUIPAMENTO:*\n${m.tag || ''}\n\n`;
+    report += `🗓 DADOS:\n${doc.date || ''}\n\n`;
+    report += `👥 EXECUTANTES:\n${executantes}\n\n`;
+    report += `⏱⁠ HORA INÍCIO: ${m.startTime ? new Date(m.startTime).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}) : ''}\n`;
+    report += `HORA FIM: ${m.endTime ? new Date(m.endTime).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}) : ''}\n\n`;
+    report += `MOTIVO DA PARADA 🔧\n${m.taskName || ''}\n\n`;
+    report += `ATIVIDADES REALIZADAS:\n${atividades}\n\n`;
+    report += `PENDÊNCIAS: ${pendencias || ''}\n\n`;
+    report += `❗ * DESVIO: ${desvio || ''}\n\n`;
+    report += `▪ STATUS: ${status}`;
+
+    return report;
+  }, [m, doc, pendencias, desvio, status]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(generateReportContent);
+    alert('Relatório copiado para a área de transferência!');
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[150] p-4 animate-in fade-in-25">
+      <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold flex items-center gap-2"><Icons.FileSpreadsheet /> Gerar Relatório Conforme</h2>
+            <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-200"><Icons.X /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+          <div>
+            <label className="font-bold text-gray-700 text-sm">PENDÊNCIAS:</label>
+            <textarea value={pendencias} onChange={(e) => setPendencias(e.target.value)} className="w-full border p-2 rounded mt-1 h-20 text-sm" />
+          </div>
+          <div>
+            <label className="font-bold text-gray-700 text-sm">DESVIO:</label>
+            <textarea value={desvio} onChange={(e) => setDesvio(e.target.value)} className="w-full border p-2 rounded mt-1 h-20 text-sm" />
+          </div>
+           <div>
+            <label className="font-bold text-gray-700 text-sm">STATUS:</label>
+            <div className="flex gap-4 mt-2">
+                <label className="flex items-center text-sm">
+                    <input type="radio" name="status" value="LIBERADO" checked={status === 'LIBERADO'} onChange={(e) => setStatus(e.target.value)} className="mr-2 h-4 w-4"/>
+                    Liberado
+                </label>
+                <label className="flex items-center text-sm">
+                    <input type="radio" name="status" value="PARADO" checked={status === 'PARADO'} onChange={(e) => setStatus(e.target.value)} className="mr-2 h-4 w-4" />
+                    Parado
+                </label>
+            </div>
+          </div>
+          <div>
+            <label className="font-bold text-gray-700 text-sm">Pré-visualização do Relatório:</label>
+            <div className="bg-gray-100 p-4 rounded border whitespace-pre-wrap font-mono text-xs mt-1 max-h-60 overflow-y-auto">
+              {generateReportContent}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 mt-6 border-t pt-4">
+          <button onClick={onClose} className="px-4 py-2 rounded border font-bold text-sm">Cancelar</button>
+          <button onClick={handleCopy} className="bg-blue-600 text-white px-4 py-2 rounded font-bold flex items-center gap-2 text-sm"><Icons.Copy /> Copiar Relatório</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+const QRCodeModal = ({ data, onClose }) => {
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(data)}`;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 animate-in fade-in-25">
+      <div className="bg-white p-6 rounded-lg shadow-xl text-center w-full max-w-sm">
+        <h3 className="text-lg font-bold mb-4">Compartilhar com QR Code</h3>
+        <div className="p-4 bg-gray-100 border rounded-lg">
+          <img src={qrUrl} alt="QR Code" className="w-full h-auto object-contain" />
+        </div>
+        <p className="text-xs text-gray-500 mt-4">
+          Aponte a câmera do seu dispositivo para o código para ver os detalhes.
+        </p>
+        <button onClick={onClose} className="mt-6 w-full bg-gray-700 text-white px-4 py-2 rounded font-bold hover:bg-gray-800">Fechar</button>
+      </div>
+    </div>
+  );
+};
 
 const Toast = ({ message, type, onDismiss }) => {
     useEffect(() => {
@@ -766,9 +938,7 @@ const PrintTemplate = ({ data, type, onClose, settings }) => {
 
            <div className="flex gap-3 items-center">
                 <div className="bg-gray-800 p-1 rounded-lg border border-gray-600 flex gap-2">
-                    <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold text-sm flex items-center transition-colors shadow">
-                        <Icons.Download className="w-4 h-4 mr-2" /> BAIXAR PDF
-                    </button>
+                    {/* FIX: Remove print button as per user request */}
                     <button onClick={handleWordDownload} className="bg-blue-800 hover:bg-blue-900 text-white px-4 py-2 rounded font-bold text-sm flex items-center transition-colors shadow">
                         <Icons.FileText className="w-4 h-4 mr-2" /> BAIXAR WORD
                     </button>
@@ -804,7 +974,7 @@ const PrintTemplate = ({ data, type, onClose, settings }) => {
                         <td className="w-48 text-xs p-3 align-top border-l-2 border-black">
                             <div className="flex justify-between border-b border-gray-300 pb-1 mb-1"><strong>DATA:</strong> <span>{data.date}</span></div>
                             <div className="flex justify-between border-b border-gray-300 pb-1 mb-1"><strong>HORA:</strong> <span>{data.time}</span></div>
-                            <div className="flex justify-between"><strong>ID DOC:</strong> <span className="font-mono">{data.maintenanceId ? data.maintenanceId.slice(-6) : data.id.toString().slice(-6)}</span></div>
+                            <div className="flex justify-between"><strong>ID DOC:</strong> <span className="font-mono">{data.maintenanceId ? data.maintenanceId.slice(-6) : data.id?.toString().slice(-6) ?? 'Novo'}</span></div>
                         </td>
                     </tr>
                 </tbody>
@@ -1009,11 +1179,8 @@ const PrintTemplate = ({ data, type, onClose, settings }) => {
          </div>
 
          {!isAutoPrint && (
-            <div className="no-print mt-8 w-full max-w-[210mm] grid grid-cols-2 gap-4 mb-10">
-                <button onClick={() => window.print()} className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-lg shadow-lg flex flex-col items-center justify-center transition-transform hover:scale-105">
-                    <Icons.Download className="w-8 h-8 mb-2" />
-                    <span className="font-bold text-lg">SALVAR / BAIXAR PDF</span>
-                </button>
+            // FIX: Remove print button as per user request and adjust layout
+            <div className="no-print mt-8 w-full max-w-[210mm] grid grid-cols-1 gap-4 mb-10">
                 <button onClick={handleWordDownload} className="bg-blue-800 hover:bg-blue-900 text-white py-4 rounded-lg shadow-lg flex flex-col items-center justify-center transition-transform hover:scale-105">
                     <Icons.FileText className="w-8 h-8 mb-2" />
                     <span className="font-bold text-lg">BAIXAR WORD (.DOC)</span>
@@ -1075,7 +1242,7 @@ const generateReportText = (m, doc) => {
     return text;
 };
 
-const ReportCard = ({ m, doc, settings }) => {
+const ReportCard: React.FC<{ m: any; doc: any; settings: any, onGenerateQr: (text: string) => void, onGenerateYemReport: () => void }> = ({ m, doc, settings, onGenerateQr, onGenerateYemReport }) => {
     const [deviations, setDeviations] = useState('');
     const baseReportText = useMemo(() => generateReportText(m, doc), [m, doc]);
 
@@ -1104,30 +1271,35 @@ const ReportCard = ({ m, doc, settings }) => {
                 </span>
             </div>
             
-            <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Relatório Automático (Não Editável):</label>
+            <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Relatório Padrão (Não Editável):</label>
             <div 
-                className="flex-1 text-sm text-gray-800 space-y-2 mb-6 whitespace-pre-wrap font-mono bg-gray-100 p-4 rounded border border-gray-200 h-[300px] overflow-y-auto shadow-inner leading-relaxed"
+                className="flex-1 text-sm text-gray-800 space-y-2 mb-6 whitespace-pre-wrap font-mono bg-gray-100 p-4 rounded border border-gray-200 h-[200px] overflow-y-auto shadow-inner leading-relaxed"
             >
                 {baseReportText}
             </div>
             
-            <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">
-                DESVIOS E PENDÊNCIAS (Preenchimento Manual):
-            </label>
-            <textarea
-                className="w-full text-sm text-gray-800 font-mono bg-orange-50 p-4 rounded border border-orange-200 h-[150px] resize-y focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200 shadow-inner leading-relaxed mb-6"
-                value={deviations}
-                onChange={(e) => setDeviations(e.target.value)}
-                placeholder="Digite aqui quaisquer desvios, pendências ou informações adicionais..."
-            />
-
-            <div className="grid grid-cols-1 gap-4 mt-auto">
-                <button 
-                    onClick={copyToClipboard}
-                    className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors text-sm shadow-md"
+            <div className="grid grid-cols-1 gap-2 mt-auto">
+                 <button 
+                    onClick={onGenerateYemReport}
+                    className="w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors text-sm shadow-md"
                 >
-                    <Icons.Copy size={18} /> COPIAR TEXTO COMPLETO
+                    <Icons.FileSpreadsheet size={18} /> GERAR RELATÓRIO CONFORME
                 </button>
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={copyToClipboard}
+                        className="flex-1 bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors text-sm shadow-md"
+                    >
+                        <Icons.Copy size={18} /> COPIAR PADRÃO
+                    </button>
+                    <button
+                        onClick={() => onGenerateQr(baseReportText)}
+                        className="bg-gray-700 hover:bg-gray-800 text-white font-bold p-3 rounded-lg flex items-center justify-center transition-colors text-sm shadow-md"
+                        title="Gerar QR Code"
+                    >
+                        <Icons.QrCode size={18} />
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -1135,9 +1307,21 @@ const ReportCard = ({ m, doc, settings }) => {
 
 const ScreenReports = ({ activeMaintenances, docs, settings }) => {
     const finishedMaintenances = activeMaintenances.filter(m => m.status === 'finished');
+    const [qrCodeData, setQrCodeData] = useState(null);
+    const [yemReportData, setYemReportData] = useState(null);
+
+    const handleGenerateQr = (reportText) => {
+        if (!navigator.onLine) {
+            alert("A geração de QR Code requer uma conexão com a internet.");
+            return;
+        }
+        setQrCodeData(reportText);
+    };
 
     return (
         <div className="p-8 h-full flex flex-col bg-gray-100">
+             {qrCodeData && <QRCodeModal data={qrCodeData} onClose={() => setQrCodeData(null)} />}
+             {yemReportData && <YemReportModal m={yemReportData.m} doc={yemReportData.doc} onClose={() => setYemReportData(null)} />}
             <div className="flex items-center justify-between mb-8 border-b border-gray-300 pb-4">
                  <h2 className="text-4xl font-black flex items-center text-gray-800 tracking-tight">
                     <Icons.ClipboardList className="mr-4 w-10 h-10 text-yellow-600" /> 
@@ -1156,7 +1340,7 @@ const ScreenReports = ({ activeMaintenances, docs, settings }) => {
 
                     if (!doc) return null;
 
-                    return <ReportCard key={m.id} m={m} doc={doc} settings={settings} />;
+                    return <ReportCard key={m.id} m={m} doc={doc} settings={settings} onGenerateQr={handleGenerateQr} onGenerateYemReport={() => setYemReportData({ m, doc })} />;
                 })}
                 {finishedMaintenances.length === 0 && (
                     <div className="col-span-full text-center py-32 bg-white rounded-xl shadow-sm border border-dashed border-gray-300 text-gray-400">
@@ -1193,14 +1377,7 @@ const ScreenProgramming = ({ schedule, onStartTask, activeMaintenances }) => {
                     <h2 className="text-3xl font-bold flex items-center text-gray-800">
                         <Icons.Calendar className="mr-3 w-8 h-8" /> PROGRAMAÇÃO DE MANUTENÇÃO
                     </h2>
-                    <div className="flex gap-2">
-                        <button 
-                            onClick={() => setShowPrintPreview(true)} 
-                            className="bg-green-600 text-white px-4 py-2 rounded font-bold flex items-center shadow hover:bg-green-700 transition-colors"
-                        >
-                            <Icons.Download className="w-4 h-4 mr-2" /> BAIXAR PDF
-                        </button>
-                    </div>
+                    {/* FIX: Removed print/pdf button as per user request */}
                 </div>
             </div>
 
@@ -1423,6 +1600,11 @@ const ScreenLogin = ({ onLogin, users, onUserChange }) => {
     e.preventDefault();
     const user = users.find(u => u.matricula === matricula && u.password === password);
     if (user) {
+        if (user.role === 'admin') {
+            const sessionId = Date.now() + Math.random();
+            localStorage.setItem('adminSession', JSON.stringify({ sessionId }));
+            user.sessionId = sessionId;
+        }
         onLogin(user);
     } else {
         alert('Credenciais inválidas');
@@ -1701,7 +1883,7 @@ const ScreenDashboard = ({ currentUser, activeMaintenances, onOpenChecklist, ref
   useEffect(() => {
     const interval = setInterval(() => {
       refreshData();
-    }, 30000);
+    }, 10000);
     return () => clearInterval(interval);
   }, [refreshData]);
   
@@ -1765,18 +1947,12 @@ const ScreenDashboard = ({ currentUser, activeMaintenances, onOpenChecklist, ref
                     <Icons.Activity /> <span className="ml-2">EM ANDAMENTO</span>
                  </h2>
                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-gray-400 animate-pulse flex items-center"><Icons.Clock className="w-3 h-3 mr-1"/> Atualização: 30s</span>
+                    <span className="text-[10px] text-gray-400 animate-pulse flex items-center"><Icons.Clock className="w-3 h-3 mr-1"/> Atualização: 10s</span>
                     <span className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-bold">
                         {activeList.length} ATIVOS
                     </span>
                  </div>
              </div>
-
-            <div className="w-full h-40 bg-gray-800 flex items-center justify-center border-b border-gray-300 relative overflow-hidden">
-                <img src="https://storage.googleapis.com/aistudio-hub-generative-ai-assets/e69315f0-6c90-48e0-a7d1-e97022d861ce/vale-background.png" className="absolute inset-0 w-full h-full object-cover opacity-20" alt="Monitoring Background" />
-                <div className="absolute inset-0 bg-gradient-to-r from-gray-900/50 via-transparent to-gray-900/50"></div>
-                <h3 className="relative text-3xl font-black text-white tracking-wider drop-shadow-lg">MONITORAMENTO OFF-ROAD</h3>
-            </div>
              
              <div className="p-4 overflow-y-auto flex-1 bg-gray-100 z-10 relative">
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1837,6 +2013,25 @@ const ScreenArtEmergencial = ({ onSave, employees, editingDoc, settings }) => {
   const [signatures, setSignatures] = useState([]);
   const [maintenanceType, setMaintenanceType] = useState('corretiva');
   const [correctionDescription, setCorrectionDescription] = useState('');
+  
+  const [draftToLoad, setDraftToLoad] = useState(null);
+  const [showSaveToast, setShowSaveToast] = useState(false);
+
+  const draftKey = useMemo(() => editingDoc ? `draft_emergencial_${editingDoc.id}` : 'draft_emergencial_new', [editingDoc]);
+  
+  const getDocData = () => {
+    return {
+      ...header,
+      type: 'emergencial',
+      checkedRisks,
+      riskLocations,
+      riskControls,
+      signatures,
+      maintenanceType,
+      correctionDescription,
+      id: editingDoc?.id ?? Date.now()
+    };
+  };
 
   useEffect(() => {
     if (editingDoc) {
@@ -1860,6 +2055,63 @@ const ScreenArtEmergencial = ({ onSave, employees, editingDoc, settings }) => {
     }
   }, [editingDoc]);
 
+  // Load draft on mount
+  useEffect(() => {
+    const savedDraft = localStorage.getItem(draftKey);
+    if (savedDraft) {
+      try {
+        const parsedDraft = JSON.parse(savedDraft);
+        if (parsedDraft.taskName || Object.keys(parsedDraft.checkedRisks || {}).length > 0) {
+          setDraftToLoad(parsedDraft);
+        }
+      } catch (e) {
+        console.error("Failed to parse draft", e);
+        localStorage.removeItem(draftKey);
+      }
+    }
+  }, [draftKey]);
+
+  // Auto-save periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+        const currentData = {
+            ...header, type: 'emergencial', checkedRisks, riskLocations, riskControls,
+            signatures, maintenanceType, correctionDescription, id: editingDoc?.id ?? Date.now()
+        };
+
+        if (currentData.taskName || Object.keys(currentData.checkedRisks).length > 0 || currentData.signatures.length > 0) {
+            localStorage.setItem(draftKey, JSON.stringify(currentData));
+            setShowSaveToast(true);
+            setTimeout(() => setShowSaveToast(false), 2500);
+        }
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [header, checkedRisks, riskLocations, riskControls, signatures, maintenanceType, correctionDescription, editingDoc, draftKey]);
+
+  const handleLoadDraft = () => {
+    const draft = draftToLoad;
+    setHeader({
+      taskName: draft.taskName || '', om: draft.om || '', tag: draft.tag || '',
+      activityType: draft.activityType || 'Mecânica', location: draft.location || '',
+      hasPlanning: draft.hasPlanning || false, docVersion: draft.docVersion || header.docVersion,
+      date: draft.date || new Date().toLocaleDateString('pt-BR'),
+      time: draft.time || new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})
+    });
+    setCheckedRisks(draft.checkedRisks || {});
+    setRiskLocations(draft.riskLocations || {});
+    setRiskControls(draft.riskControls || {});
+    setSignatures(draft.signatures || []);
+    setMaintenanceType(draft.maintenanceType || 'corretiva');
+    setCorrectionDescription(draft.correctionDescription || '');
+    setDraftToLoad(null);
+  };
+
+  const handleDiscardDraft = () => {
+    localStorage.removeItem(draftKey);
+    setDraftToLoad(null);
+  };
+  
   const handleRiskCheck = (index) => {
     const newState = !checkedRisks[index];
     setCheckedRisks(prev => ({ ...prev, [index]: newState }));
@@ -1872,20 +2124,6 @@ const ScreenArtEmergencial = ({ onSave, employees, editingDoc, settings }) => {
 
   const handleQuadrantSelect = (index, quadrant) => {
     setRiskLocations(prev => ({ ...prev, [index]: quadrant }));
-  };
-
-  const getDocData = () => {
-    return {
-      ...header,
-      type: 'emergencial',
-      checkedRisks,
-      riskLocations,
-      riskControls,
-      signatures,
-      maintenanceType,
-      correctionDescription,
-      id: editingDoc ? editingDoc.id : Date.now()
-    };
   };
 
   const handleSubmit = () => {
@@ -1909,6 +2147,7 @@ const ScreenArtEmergencial = ({ onSave, employees, editingDoc, settings }) => {
         alert("ERRO DE VALIDAÇÃO: A assinatura é OBRIGATÓRIA para salvar este documento.");
         return;
     }
+    localStorage.removeItem(draftKey);
     onSave({ type: 'SAVE_DOC', payload: getDocData() });
   };
 
@@ -1916,6 +2155,8 @@ const ScreenArtEmergencial = ({ onSave, employees, editingDoc, settings }) => {
 
   return (
     <div className="p-6 max-w-4xl mx-auto bg-white shadow rounded relative">
+        {draftToLoad && <DraftLoadModal onConfirm={handleLoadDraft} onDiscard={handleDiscardDraft} />}
+        <AutoSaveIndicator isVisible={showSaveToast} />
         <button 
             onClick={handleSubmit} 
             className="fixed bottom-8 right-8 bg-green-600 text-white p-4 rounded-full shadow-2xl border-4 border-white hover:bg-green-700 z-50 flex items-center gap-2 transition-transform hover:scale-105"
@@ -2068,17 +2309,26 @@ const ScreenArtAtividade = ({ onSave, employees, editingDoc, settings, externalD
   const [attachedPdfName, setAttachedPdfName] = useState('');
   const [maintenanceType, setMaintenanceType] = useState('corretiva');
   const [correctionDescription, setCorrectionDescription] = useState('');
+  
+  const [draftToLoad, setDraftToLoad] = useState(null);
+  const [showSaveToast, setShowSaveToast] = useState(false);
 
+  const draftKey = useMemo(() => editingDoc ? `draft_atividade_${editingDoc.id}` : 'draft_atividade_new', [editingDoc]);
+
+  const getDocData = () => {
+     return {
+         ...header, type: 'atividade', steps, principalRisks, controlSummary,
+         additionalMeasures, signatures, attachedPdfName, maintenanceType,
+         correctionDescription, id: editingDoc?.id ?? Date.now()
+     };
+  };
+  
   useEffect(() => {
     if (editingDoc) {
         setHeader({
-            taskName: editingDoc.taskName,
-            om: editingDoc.om,
-            tag: editingDoc.tag,
-            activityType: editingDoc.activityType,
-            location: editingDoc.location,
-            date: editingDoc.date || header.date,
-            time: editingDoc.time || header.time
+            taskName: editingDoc.taskName, om: editingDoc.om, tag: editingDoc.tag,
+            activityType: editingDoc.activityType, location: editingDoc.location,
+            date: editingDoc.date || header.date, time: editingDoc.time || header.time
         });
         setSteps(editingDoc.steps || ['']);
         setPrincipalRisks(editingDoc.principalRisks || [{risk: '', total: '', level: 'MÉDIA'}]);
@@ -2091,28 +2341,62 @@ const ScreenArtAtividade = ({ onSave, employees, editingDoc, settings, externalD
     }
   }, [editingDoc]);
 
+  // Load draft on mount
+  useEffect(() => {
+    const savedDraft = localStorage.getItem(draftKey);
+    if (savedDraft) {
+      try {
+        const parsedDraft = JSON.parse(savedDraft);
+        if (parsedDraft.taskName || parsedDraft.steps?.length > 1) {
+          setDraftToLoad(parsedDraft);
+        }
+      } catch (e) { console.error("Failed to parse draft", e); localStorage.removeItem(draftKey); }
+    }
+  }, [draftKey]);
+
+  // Auto-save
+  useEffect(() => {
+    const interval = setInterval(() => {
+        const currentData = getDocData();
+        if (currentData.taskName || currentData.steps.some(s => s) || currentData.signatures.length > 0) {
+            localStorage.setItem(draftKey, JSON.stringify(currentData));
+            setShowSaveToast(true);
+            setTimeout(() => setShowSaveToast(false), 2500);
+        }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [header, steps, principalRisks, controlSummary, additionalMeasures, signatures, attachedPdfName, maintenanceType, correctionDescription, editingDoc, draftKey]);
+
+  const handleLoadDraft = () => {
+    const draft = draftToLoad;
+    setHeader({
+        taskName: draft.taskName || '', om: draft.om || '', tag: draft.tag || '',
+        activityType: draft.activityType || 'Mecânica', location: draft.location || '',
+        date: draft.date || new Date().toLocaleDateString('pt-BR'),
+        time: draft.time || new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})
+    });
+    setSteps(draft.steps || ['']);
+    setPrincipalRisks(draft.principalRisks || [{risk: '', total: '', level: 'MÉDIA'}]);
+    setControlSummary(draft.controlSummary || '');
+    setAdditionalMeasures(draft.additionalMeasures || '');
+    setSignatures(draft.signatures || []);
+    setAttachedPdfName(draft.attachedPdfName || '');
+    setMaintenanceType(draft.maintenanceType || 'corretiva');
+    setCorrectionDescription(draft.correctionDescription || '');
+    setDraftToLoad(null);
+  };
+
+  const handleDiscardDraft = () => {
+    localStorage.removeItem(draftKey);
+    setDraftToLoad(null);
+  };
+
   const addStep = () => setSteps([...steps, '']);
   const updateStep = (i, val) => { const n = [...steps]; n[i] = val; setSteps(n); };
   const removeStep = (i) => { const n = [...steps]; n.splice(i, 1); setSteps(n); };
 
   const addRisk = () => setPrincipalRisks([...principalRisks, {risk: '', total: '', level: 'MÉDIA'}]);
   const updateRisk = (i, field, val) => { const n = [...principalRisks]; n[i][field] = val; setPrincipalRisks(n); };
-
-  const getDocData = () => {
-     return {
-         ...header,
-         type: 'atividade',
-         steps,
-         principalRisks,
-         controlSummary,
-         additionalMeasures,
-         signatures,
-         attachedPdfName,
-         maintenanceType,
-         correctionDescription,
-         id: editingDoc ? editingDoc.id : Date.now()
-     };
-  };
 
   const handleSubmit = () => {
      if (!header.om || !header.om.trim()) {
@@ -2135,11 +2419,14 @@ const ScreenArtAtividade = ({ onSave, employees, editingDoc, settings, externalD
         alert("ERRO DE VALIDAÇÃO: A assinatura é OBRIGATÓRIA para salvar este documento.");
         return;
     }
+    localStorage.removeItem(draftKey);
     onSave({ type: 'SAVE_DOC', payload: getDocData() });
   };
 
   return (
     <div className="p-6 max-w-4xl mx-auto bg-white shadow rounded relative">
+        {draftToLoad && <DraftLoadModal onConfirm={handleLoadDraft} onDiscard={handleDiscardDraft} />}
+        <AutoSaveIndicator isVisible={showSaveToast} />
         <button 
             onClick={handleSubmit} 
             className="fixed bottom-8 right-8 bg-green-600 text-white p-4 rounded-full shadow-2xl border-4 border-white hover:bg-green-700 z-50 flex items-center gap-2 transition-transform hover:scale-105"
@@ -2268,31 +2555,47 @@ const ScreenArtAtividade = ({ onSave, employees, editingDoc, settings, externalD
   );
 };
 const ScreenChecklist = ({ onSave, employees, editingDoc, preFill, settings }) => {
+  // FIX: Add maintenanceId to the header state to prevent type errors.
   const [header, setHeader] = useState({ 
       taskName: '', om: '', tag: '', activityType: 'Mecânica', location: '',
       date: new Date().toLocaleDateString('pt-BR'),
-      time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})
+      time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
+      maintenanceId: null
   });
   const [checks, setChecks] = useState({});
   const [obs, setObs] = useState({});
   const [signatures, setSignatures] = useState([]);
   const [maintenanceType, setMaintenanceType] = useState('preventiva');
   const [correctionDescription, setCorrectionDescription] = useState('');
+  
+  const [draftToLoad, setDraftToLoad] = useState(null);
+  const [showSaveToast, setShowSaveToast] = useState(false);
+
+  const draftKey = useMemo(() => {
+    const id = editingDoc?.maintenanceId || preFill?.maintenanceId;
+    return id ? `draft_checklist_${id}` : 'draft_checklist_new';
+  }, [editingDoc, preFill]);
+
+  const getDocData = () => {
+      return {
+        ...header, type: 'checklist', checks, obs, signatures,
+        maintenanceType, correctionDescription, id: editingDoc?.id ?? Date.now()
+    };
+  };
 
   useEffect(() => {
       if (preFill) {
         setHeader(prev => ({...prev, ...preFill}));
       }
       if (editingDoc) {
-          setHeader({
-            taskName: editingDoc.taskName,
-            om: editingDoc.om,
-            tag: editingDoc.tag,
-            activityType: editingDoc.activityType,
-            location: editingDoc.location,
-            date: editingDoc.date || header.date,
-            time: editingDoc.time || header.time
-          });
+          // FIX: Use functional update and include maintenanceId to prevent state overwrites.
+          setHeader(prev => ({
+            ...prev,
+            taskName: editingDoc.taskName, om: editingDoc.om, tag: editingDoc.tag,
+            activityType: editingDoc.activityType, location: editingDoc.location,
+            date: editingDoc.date || prev.date, time: editingDoc.time || prev.time,
+            maintenanceId: editingDoc.maintenanceId
+          }));
           setChecks(editingDoc.checks || {});
           setObs(editingDoc.obs || {});
           setSignatures(editingDoc.signatures || []);
@@ -2301,21 +2604,58 @@ const ScreenChecklist = ({ onSave, employees, editingDoc, preFill, settings }) =
       }
   }, [editingDoc, preFill]);
 
+  // Load draft
+  useEffect(() => {
+    const savedDraft = localStorage.getItem(draftKey);
+    if (savedDraft) {
+      try {
+        const parsedDraft = JSON.parse(savedDraft);
+        if (Object.keys(parsedDraft.checks || {}).length > 0) {
+          setDraftToLoad(parsedDraft);
+        }
+      } catch (e) { console.error("Failed to parse draft", e); localStorage.removeItem(draftKey); }
+    }
+  }, [draftKey]);
+
+  // Auto-save
+  useEffect(() => {
+    const interval = setInterval(() => {
+        const currentData = getDocData();
+        if (Object.keys(currentData.checks).length > 0 || currentData.signatures.length > 0) {
+            localStorage.setItem(draftKey, JSON.stringify(currentData));
+            setShowSaveToast(true);
+            setTimeout(() => setShowSaveToast(false), 2500);
+        }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [header, checks, obs, signatures, maintenanceType, correctionDescription, editingDoc, draftKey]);
+
+  const handleLoadDraft = () => {
+    const draft = draftToLoad;
+    // FIX: Use functional update for setHeader to ensure state consistency.
+    setHeader(prev => ({
+        ...prev,
+        taskName: draft.taskName || preFill?.taskName || '', om: draft.om || preFill?.om || '', tag: draft.tag || preFill?.tag || '',
+        activityType: draft.activityType || 'Mecânica', location: draft.location || '',
+        date: draft.date || new Date().toLocaleDateString('pt-BR'),
+        time: draft.time || new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
+        maintenanceId: draft.maintenanceId || preFill?.maintenanceId
+    }));
+    setChecks(draft.checks || {});
+    setObs(draft.obs || {});
+    setSignatures(draft.signatures || []);
+    setMaintenanceType(draft.maintenanceType || 'preventiva');
+    setCorrectionDescription(draft.correctionDescription || '');
+    setDraftToLoad(null);
+  };
+
+  const handleDiscardDraft = () => {
+    localStorage.removeItem(draftKey);
+    setDraftToLoad(null);
+  };
+
   const handleCheck = (key, val) => setChecks(prev => ({...prev, [key]: val}));
   const handleObs = (key, val) => setObs(prev => ({...prev, [key]: val}));
-
-  const getDocData = () => {
-      return {
-        ...header,
-        type: 'checklist',
-        checks,
-        obs,
-        signatures,
-        maintenanceType,
-        correctionDescription,
-        id: editingDoc ? editingDoc.id : Date.now()
-    };
-  };
 
   const handleSubmit = () => {
     if (!header.om || !header.om.trim()) {
@@ -2334,49 +2674,52 @@ const ScreenChecklist = ({ onSave, employees, editingDoc, preFill, settings }) =
         alert("ERRO DE VALIDAÇÃO: A assinatura é OBRIGATÓRIA para salvar este documento.");
         return;
     }
+    localStorage.removeItem(draftKey);
     onSave({ type: 'SAVE_DOC', payload: getDocData() });
   };
 
   return (
     <div className="p-6 max-w-4xl mx-auto bg-white shadow rounded relative">
+        {draftToLoad && <DraftLoadModal onConfirm={handleLoadDraft} onDiscard={handleDiscardDraft} />}
+        <AutoSaveIndicator isVisible={showSaveToast} />
         <button 
             onClick={handleSubmit} 
             className="fixed bottom-8 right-8 bg-green-600 text-white p-4 rounded-full shadow-2xl border-4 border-white hover:bg-green-700 z-50 flex items-center gap-2 transition-transform hover:scale-105"
-            title="Salvar e Encerrar"
+            title="Salvar Checklist e Encerrar Manutenção"
         >
             <Icons.Save />
-            <span className="font-bold">SALVAR</span>
+            <span className="font-bold">SALVAR E ENCERRAR OM</span>
         </button>
 
       <h2 className="text-2xl font-bold mb-4 bg-gray-700 text-white p-2 text-center border-2 border-black">CHECKLIST DE ENTREGA</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 p-4 bg-gray-50 border rounded">
-        <input placeholder="Tarefa" className="border p-2 w-full" value={header.taskName} onChange={e => setHeader({...header, taskName: e.target.value})} />
+        <input placeholder="Tarefa" className="border p-2 w-full" value={header.taskName} onChange={e => setHeader(prev => ({...prev, taskName: e.target.value}))} />
         <div>
              <label className="text-xs font-bold text-red-600 block">OM (Obrigatório)*</label>
-             <input placeholder="OM" className="border p-2 w-full border-l-4 border-red-500" value={header.om} readOnly={!!preFill} onChange={e => setHeader({...header, om: e.target.value})} />
+             <input placeholder="OM" className="border p-2 w-full border-l-4 border-red-500" value={header.om} readOnly={!!preFill} onChange={e => setHeader(prev => ({...prev, om: e.target.value}))} />
         </div>
         
         <div className="w-full relative">
             <label className="text-xs font-bold text-red-600 block">TAG (Obrigatório)*</label>
-            <input list="tagList" placeholder="TAG Equipamento" className="border p-2 w-full border-l-4 border-red-500" value={header.tag} readOnly={!!preFill} onChange={e => setHeader({...header, tag: e.target.value})} />
+            <input list="tagList" placeholder="TAG Equipamento" className="border p-2 w-full border-l-4 border-red-500" value={header.tag} readOnly={!!preFill} onChange={e => setHeader(prev => ({...prev, tag: e.target.value}))} />
             <datalist id="tagList">
                 {settings?.tags?.map(t => <option key={t} value={t} />)}
             </datalist>
         </div>
         
-        <select className="border p-2 w-full" value={header.location} onChange={e => setHeader({...header, location: e.target.value})}>
+        <select className="border p-2 w-full" value={header.location} onChange={e => setHeader(prev => ({...prev, location: e.target.value}))}>
             <option value="">Selecione o Local...</option>
             {settings?.locations?.map(loc => <option key={loc} value={loc}>{loc}</option>)}
         </select>
 
         <div>
             <label className="block text-xs font-bold mb-1">Data:</label>
-            <input className="border p-2 w-full" value={header.date} onChange={e => setHeader({...header, date: e.target.value})} />
+            <input className="border p-2 w-full" value={header.date} onChange={e => setHeader(prev => ({...prev, date: e.target.value}))} />
         </div>
         <div>
             <label className="block text-xs font-bold mb-1">Hora:</label>
-            <input className="border p-2 w-full" value={header.time} onChange={e => setHeader({...header, time: e.target.value})} />
+            <input className="border p-2 w-full" value={header.time} onChange={e => setHeader(prev => ({...prev, time: e.target.value}))} />
         </div>
       </div>
 
@@ -2469,7 +2812,7 @@ const ScreenExternalArt = ({ onSave, editingDoc }) => {
         ...form,
         type: 'external',
         date: new Date().toLocaleDateString('pt-BR'),
-        id: editingDoc ? editingDoc.id : Date.now()
+        id: editingDoc?.id ?? Date.now()
       }
     });
     setForm({ fileName: '', artNumber: '', fileContent: '' });
@@ -2517,23 +2860,45 @@ const ScreenExternalArt = ({ onSave, editingDoc }) => {
     </div>
   );
 };
+// FIX: Removed ScreenHistory and merged its functionality into ScreenFileDocuments
+const ScreenFileDocuments = ({ docs, onView, onDownload, onEdit, onDelete, onSendToNetwork, activeMaintenances }) => {
+  const [search, setSearch] = useState('');
+  const [qrCodeData, setQrCodeData] = useState(null);
+  
+  const handleGenerateQr = (doc) => {
+    if (!navigator.onLine) {
+        alert("A geração de QR Code requer uma conexão com a internet.");
+        return;
+    }
+    const summary = generateDocSummary(doc);
+    setQrCodeData(summary);
+  };
 
-const ScreenHistory = ({ docs, onView, onDownload, onEdit, onDelete, onSendToNetwork, activeMaintenances }) => {
-  // Split logic for side panel
+  const filteredDocs = docs.filter(d => 
+      d.taskName?.toLowerCase().includes(search.toLowerCase()) ||
+      d.om?.includes(search) ||
+      d.tag?.includes(search) ||
+      d.fileName?.toLowerCase().includes(search.toLowerCase())
+  );
+
   const finishedIds = new Set(activeMaintenances.filter(m => m.status === 'finished').map(m => m.id));
   
-  // Finished OMs go to side panel
-  const finishedDocs = docs.filter(d => d.maintenanceId && finishedIds.has(d.maintenanceId));
-  
-  // Active or Unlinked docs stay in main area
-  const activeDocs = docs.filter(d => !d.maintenanceId || !finishedIds.has(d.maintenanceId));
+  const finishedDocs = filteredDocs.filter(d => d.maintenanceId && finishedIds.has(d.maintenanceId));
+  const activeDocs = filteredDocs.filter(d => !d.maintenanceId || !finishedIds.has(d.maintenanceId));
 
   return (
     <div className="p-6 h-full flex flex-col md:flex-row gap-6">
+        {qrCodeData && <QRCodeModal data={qrCodeData} onClose={() => setQrCodeData(null)} />}
         {/* MAIN CONTENT (LEFT) */}
         <div className="flex-1 flex flex-col bg-white rounded shadow overflow-hidden">
-          <div className="p-4 border-b bg-gray-100 flex justify-between items-center">
-              <h2 className="font-bold text-xl flex items-center"><Icons.FileText className="mr-2"/> DOCUMENTOS ATIVOS / HISTÓRICO</h2>
+          <div className="p-4 border-b bg-gray-100 flex justify-between items-center flex-wrap gap-4">
+              <h2 className="font-bold text-xl flex items-center"><Icons.Folder className="mr-2"/> ARQUIVO DE DOCUMENTOS</h2>
+              <input 
+                  className="p-2 border rounded bg-white w-full md:w-auto" 
+                  placeholder="Pesquisar..." 
+                  value={search} 
+                  onChange={e => setSearch(e.target.value)}
+               />
           </div>
           <div className="overflow-x-auto flex-1">
             <table className="w-full text-left border-collapse">
@@ -2565,28 +2930,28 @@ const ScreenHistory = ({ docs, onView, onDownload, onEdit, onDelete, onSendToNet
                             </td>
                             <td className="p-3">{doc.date} <span className="text-gray-400">{doc.time}</span></td>
                             <td className="p-3">
-                                <div className="flex justify-center gap-2">
+                                <div className="flex justify-center gap-1">
                                     <button onClick={() => onView(doc)} className="p-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200" title="Visualizar">
-                                        <Icons.Eye size={18} />
+                                        <Icons.Eye size={16} />
                                     </button>
                                     <button onClick={() => onDownload(doc)} className="p-2 bg-green-100 text-green-700 rounded hover:bg-green-200" title="Visualizar para Baixar">
-                                        <Icons.Download size={18} />
+                                        <Icons.Download size={16} />
+                                    </button>
+                                    <button onClick={() => handleGenerateQr(doc)} className="p-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200" title="Gerar QR Code">
+                                        <Icons.QrCode size={16} />
                                     </button>
                                     <button onClick={() => onEdit(doc)} className="p-2 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200" title="Editar">
-                                        <Icons.Edit size={18} />
+                                        <Icons.Edit size={16} />
                                     </button>
                                     <button onClick={() => onDelete({ type: 'DELETE_DOC', payload: doc.id })} className="p-2 bg-red-100 text-red-700 rounded hover:bg-red-200" title="Excluir">
-                                        <Icons.Trash size={18} />
-                                    </button>
-                                    <button onClick={() => onSendToNetwork(doc)} className="p-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200" title="Enviar Rede">
-                                        <Icons.Server size={18} />
+                                        <Icons.Trash size={16} />
                                     </button>
                                 </div>
                             </td>
                         </tr>
                     ))}
                     {activeDocs.length === 0 && (
-                        <tr><td colSpan={5} className="p-8 text-center text-gray-400">Nenhum documento ativo.</td></tr>
+                        <tr><td colSpan={5} className="p-8 text-center text-gray-400">Nenhum documento ativo encontrado.</td></tr>
                     )}
                 </tbody>
             </table>
@@ -2613,567 +2978,383 @@ const ScreenHistory = ({ docs, onView, onDownload, onEdit, onDelete, onSendToNet
                          <div className="flex gap-1 justify-center border-t pt-2">
                              <button onClick={() => onView(doc)} className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 flex-1 flex justify-center"><Icons.Eye size={14}/></button>
                              <button onClick={() => onDownload(doc)} className="p-1 bg-green-50 text-green-600 rounded hover:bg-green-100 flex-1 flex justify-center"><Icons.Download size={14}/></button>
-                             <button onClick={() => onEdit(doc)} className="p-1 bg-yellow-50 text-yellow-600 rounded hover:bg-yellow-100 flex-1 flex justify-center"><Icons.Edit size={14}/></button>
+                              <button onClick={() => handleGenerateQr(doc)} className="p-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100 flex-1 flex justify-center" title="Gerar QR Code">
+                                <Icons.QrCode size={14} />
+                            </button>
                              <button onClick={() => onDelete({ type: 'DELETE_DOC', payload: doc.id })} className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 flex-1 flex justify-center"><Icons.Trash size={14}/></button>
                          </div>
                      </div>
                  ))}
-                 {finishedDocs.length === 0 && <p className="text-xs text-gray-400 text-center italic">Nenhuma OM encerrada recentemente.</p>}
+                 {finishedDocs.length === 0 && <p className="text-xs text-gray-400 text-center italic">Nenhuma OM encerrada encontrada.</p>}
              </div>
         </div>
     </div>
   );
 };
-const ScreenEmployeeRegister = ({ employees, onSave, onDelete }) => {
-  const [form, setForm] = useState({ name: '', role: '', matricula: '' });
-  const [editingMatricula, setEditingMatricula] = useState(null);
 
-  const handleSaveClick = () => {
-    if (!form.name || !form.matricula) return alert("Preencha nome e matrícula");
-    
-    const actionType = editingMatricula ? 'UPDATE_EMPLOYEE' : 'ADD_EMPLOYEE';
-    
-    if (!editingMatricula && employees.some(e => e.matricula === form.matricula)) {
-        return alert("Matrícula já cadastrada.");
-    }
-
-    onSave({ type: actionType, payload: form });
-    
-    setEditingMatricula(null);
-    setForm({ name: '', role: '', matricula: '' });
-  };
-  
-  const handleEdit = (employee) => {
-      setEditingMatricula(employee.matricula);
-      setForm(employee);
-  };
-
-  const handleDeleteClick = (matricula) => {
-      if (confirm("Excluir funcionário?")) {
-          onDelete({ type: 'DELETE_EMPLOYEE', payload: matricula });
-      }
-  };
-  
-  const cancelEdit = () => {
-      setEditingMatricula(null);
-      setForm({ name: '', role: '', matricula: '' });
-  };
-
-  return (
-    <div className="p-6 max-w-4xl mx-auto bg-white shadow rounded">
-      <h2 className="text-2xl font-bold mb-4">Cadastro de Funcionários</h2>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-4 p-4 border rounded bg-gray-50">
-        <input placeholder="Nome Completo" className="border p-2 rounded" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <input placeholder="Função / Cargo" className="border p-2 rounded" value={form.role} onChange={e => setForm({...form, role: e.target.value})} />
-        <input placeholder="Matrícula" className="border p-2 rounded" value={form.matricula} onChange={e => setForm({...form, matricula: e.target.value})} disabled={!!editingMatricula} />
-      </div>
-      <div className="flex gap-2 mb-6">
-        <button onClick={handleSaveClick} className="w-full bg-blue-600 text-white p-2 rounded font-bold hover:bg-blue-700">
-            {editingMatricula ? 'SALVAR ALTERAÇÕES' : 'ADICIONAR FUNCIONÁRIO'}
-        </button>
-        {editingMatricula && (
-            <button onClick={cancelEdit} className="w-full bg-gray-500 text-white p-2 rounded font-bold hover:bg-gray-600">CANCELAR</button>
-        )}
-      </div>
-      
-      <div className="space-y-2">
-        {employees.map(emp => (
-          <div key={emp.matricula} className="flex justify-between items-center border p-3 rounded hover:bg-gray-50">
-            <div>
-                <p className="font-bold">{emp.name}</p>
-                <p className="text-xs text-gray-500">{emp.role} | Mat: {emp.matricula}</p>
-            </div>
-            <div className="flex gap-2">
-                <button onClick={() => handleEdit(emp)} className="p-2 text-blue-600 hover:bg-blue-100 rounded"><Icons.Edit /></button>
-                <button onClick={() => handleDeleteClick(emp.matricula)} className="p-2 text-red-600 hover:bg-red-100 rounded"><Icons.Trash /></button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const ScreenAdminUsers = ({ users, onSave, onDelete }) => {
-  const [form, setForm] = useState({ name: '', matricula: '', password: '', role: 'user' });
-  const [editingMatricula, setEditingMatricula] = useState(null);
-
-  const handleSaveClick = () => {
-    if (!form.name || !form.matricula || !form.password) return alert("Preencha todos os dados");
-    
-    const actionType = editingMatricula ? 'UPDATE_USER' : 'ADD_USER';
-
-    if (!editingMatricula && users.some(u => u.matricula === form.matricula)) {
-        return alert("Usuário com esta matrícula já existe.");
-    }
-    
-    onSave({ type: actionType, payload: form });
-    
-    setEditingMatricula(null);
-    setForm({ name: '', matricula: '', password: '', role: 'user' });
-  };
-  
-  const handleEdit = (user) => {
-      setEditingMatricula(user.matricula);
-      setForm(user);
-  };
-
-  const handleDeleteClick = (matricula) => {
-      if (matricula === 'admin') {
-          alert("Não é possível excluir o administrador padrão.");
-          return;
-      }
-      if (confirm("Excluir usuário de sistema?")) {
-          onDelete({ type: 'DELETE_USER', payload: matricula });
-      }
-  };
-  
-  const cancelEdit = () => {
-      setEditingMatricula(null);
-      setForm({ name: '', matricula: '', password: '', role: 'user' });
-  };
-
-  return (
-    <div className="p-6 max-w-2xl mx-auto bg-white shadow rounded">
-      <h2 className="text-2xl font-bold mb-4">Gestão de Usuários (Login)</h2>
-      <div className="grid grid-cols-1 gap-3 mb-4 p-4 border rounded bg-gray-50">
-        <input placeholder="Nome do Usuário" className="border p-2 rounded" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <div className="grid grid-cols-2 gap-2">
-            <input placeholder="Login (Matrícula)" className="border p-2 rounded" value={form.matricula} onChange={e => setForm({...form, matricula: e.target.value})} disabled={!!editingMatricula} />
-            <input placeholder="Senha" type="password" className="border p-2 rounded" value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
-        </div>
-        <select value={form.role} onChange={e => setForm({...form, role: e.target.value})} className="border p-2 rounded bg-white">
-            <option value="user">Usuário Padrão</option>
-            <option value="admin">Administrador</option>
-        </select>
-      </div>
-      <div className="flex gap-2 mb-6">
-        <button onClick={handleSaveClick} className="w-full bg-black text-white p-2 rounded font-bold mb-6 hover:bg-gray-800">
-            {editingMatricula ? 'SALVAR ALTERAÇÕES' : 'CRIAR USUÁRIO'}
-        </button>
-        {editingMatricula && (
-            <button onClick={cancelEdit} className="w-full bg-gray-500 text-white p-2 rounded font-bold mb-6 hover:bg-gray-600">CANCELAR</button>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        {users.map(u => (
-          <div key={u.matricula} className="flex justify-between items-center border p-3 rounded">
-            <div>
-                <p className="font-bold">{u.name} {u.role === 'admin' && <span className="text-xs bg-black text-white px-2 py-1 rounded-full">ADMIN</span>}</p>
-                <p className="text-xs text-gray-500">Login: {u.matricula}</p>
-            </div>
-            <div className="flex gap-2">
-                <button onClick={() => handleEdit(u)} className="p-2 text-blue-600 hover:bg-blue-100 rounded"><Icons.Edit /></button>
-                <button onClick={() => handleDeleteClick(u.matricula)} className="p-2 text-red-600 hover:bg-red-100 rounded"><Icons.Trash /></button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const ProgrammingManagementPanel = ({ schedule, onScheduleChange }) => {
-    const [newItem, setNewItem] = useState({ 
-        omFrota: '', 
-        description: '', 
-        dateMin: '', 
-        dateMax: '', 
-        priority: 'MÉDIA', 
-        peopleCount: '', 
-        hours: '', 
-        startDate: new Date().toISOString().split('T')[0], 
-        endDate: '', 
-        workCenter: '', 
-        startTime: '', 
-        endTime: '', 
-        resource: '' 
-    });
-    const [importText, setImportText] = useState('');
-    const [showImport, setShowImport] = useState(false);
-    const [showAdd, setShowAdd] = useState(false);
-    const [loadingPdf, setLoadingPdf] = useState(false);
-
-    const handleAdd = () => {
-        if (!newItem.description || !newItem.workCenter) return alert("Preencha ao menos Descrição e Centro de Trabalho.");
-        onScheduleChange([...schedule, { ...newItem, id: Date.now() }]);
-        setNewItem({ 
-            omFrota: '',
-            description: '', dateMin: '', dateMax: '', priority: 'MÉDIA', peopleCount: '', hours: '', 
-            startDate: new Date().toISOString().split('T')[0], endDate: '', workCenter: '', startTime: '', endTime: '', resource: '' 
-        });
-        setShowAdd(false);
-    };
-    
-    const handleDeleteItem = (id) => {
-        if (window.confirm("Tem certeza que deseja excluir este item da programação?")) {
-            onScheduleChange(schedule.filter(i => i.id !== id));
-        }
-    };
-
-    const handleImportText = () => {
-        const lines = importText.split('\n');
-        const newItems = [];
-        let successCount = 0;
-
-        lines.forEach(line => {
-            if (!line.trim()) return;
-            const parts = line.split('\t'); // Excel copy uses Tabs
-            if (parts.length >= 2) {
-                newItems.push({
-                    id: Date.now() + Math.random(),
-                    omFrota: parts[0]?.trim() || '',
-                    description: parts[1]?.trim() || '',
-                    dateMin: parts[2]?.trim() || '',
-                    dateMax: parts[3]?.trim() || '',
-                    priority: parts[4]?.trim() || 'MÉDIA',
-                    peopleCount: parts[5]?.trim() || '',
-                    hours: parts[6]?.trim() || '',
-                    startDate: parts[7]?.trim() || new Date().toISOString().split('T')[0],
-                    endDate: parts[8]?.trim() || '',
-                    workCenter: parts[9]?.trim() || '',
-                    startTime: parts[10]?.trim() || '',
-                    endTime: parts[11]?.trim() || '',
-                    resource: parts[12]?.trim() || ''
-                });
-                successCount++;
-            }
-        });
-        
-        if (successCount > 0) {
-            onScheduleChange([...schedule, ...newItems]);
-            setImportText('');
-            setShowImport(false);
-            alert(`${successCount} itens importados com sucesso!`);
-        } else {
-            alert("Nenhum item válido encontrado. Verifique se copiou as 13 colunas do Excel corretamente.");
-        }
-    };
-
-    const handlePdfUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            setLoadingPdf(true);
-            
-            setTimeout(() => {
-                setLoadingPdf(false);
-                const mockScheduleData = [
-                    { id: Date.now()+1, omFrota: 'TR-01', description: 'MANUTENÇÃO 250H - MOTOR E SISTEMA HIDR.', startDate: new Date().toISOString().split('T')[0], priority: 'ALTA', workCenter: 'OFICINA', startTime: '07:30', endTime: '16:00', resource: 'MEC. LIDER' },
-                    { id: Date.now()+2, omFrota: 'CV-05', description: 'TROCA DE ROLETES DE CARGA - LADO ESQUERDO', startDate: new Date().toISOString().split('T')[0], priority: 'MÉDIA', workCenter: 'CAMPO', startTime: '08:00', endTime: '12:00', resource: 'EQUIPE 2' },
-                ];
-                onScheduleChange(prev => [...prev, ...mockScheduleData]);
-                setShowImport(false);
-                alert(`PDF "${file.name}" importado com sucesso!\n\n2 novas atividades foram identificadas e adicionadas.`);
-            }, 2000);
-        }
-    };
-
-    const handleClearSchedule = () => {
-        if (window.confirm("Tem certeza que deseja LIMPAR TODA a programação? Esta ação não pode ser desfeita.")) {
-            onScheduleChange([]);
-        }
-    };
-    
+const ScreenTrash = ({ deletedDocs, onRestore, onPermanentDelete }) => {
     return (
-        <div>
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-lg">Controles da Programação</h3>
+        <div className="p-6 h-full flex flex-col">
+            <h2 className="text-3xl font-bold mb-6 flex items-center"><Icons.Trash className="mr-2"/> Lixeira</h2>
+            <div className="flex-1 bg-white rounded shadow-lg p-4 overflow-y-auto">
+                {deletedDocs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                        <Icons.Trash size={48} className="mb-4" />
+                        <p className="text-lg font-bold">A lixeira está vazia.</p>
+                    </div>
+                ) : (
+                    <table className="w-full text-left">
+                        <thead className="border-b">
+                            <tr>
+                                <th className="p-2">Documento</th>
+                                <th className="p-2">Data de Exclusão</th>
+                                <th className="p-2 text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {deletedDocs.map(doc => (
+                                <tr key={doc.id} className="border-b hover:bg-gray-50">
+                                    <td className="p-2">
+                                        <p className="font-bold">{doc.taskName || doc.fileName}</p>
+                                        <p className="text-xs text-gray-500">{doc.om} | {doc.tag}</p>
+                                    </td>
+                                    <td className="p-2 text-sm">{new Date(doc.deletedAt).toLocaleString('pt-BR')}</td>
+                                    <td className="p-2 flex justify-center gap-2">
+                                        <button onClick={() => onRestore(doc.id)} className="p-2 bg-green-100 text-green-700 rounded hover:bg-green-200" title="Restaurar">
+                                            <Icons.Restore size={18} />
+                                        </button>
+                                        <button onClick={() => onPermanentDelete(doc.id)} className="p-2 bg-red-100 text-red-700 rounded hover:bg-red-200" title="Excluir Permanentemente">
+                                            <Icons.X size={18} />
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// FIX: Add missing ScreenAdminSettings component
+const ScreenAdminSettings = ({ settings, onSaveSettings, adminScreenProps, activeTab, setActiveTab, localIP }) => {
+    const { onDataChange, editingDoc, users, employees, schedule, onScheduleChange } = adminScreenProps;
+
+    const tabs = [
+        { id: 'general', label: 'Geral', icon: Icons.Settings },
+        { id: 'users', label: 'Usuários', icon: Icons.Users },
+        { id: 'employees', label: 'Funcionários', icon: Icons.User },
+        { id: 'schedule', label: 'Programação', icon: Icons.Calendar },
+        { id: 'external_art', label: 'Cadastrar ART (PDF)', icon: Icons.FileCode },
+    ];
+
+    const GeneralSettingsTab = () => {
+        const [currentSettings, setCurrentSettings] = useState(settings);
+        const [newTag, setNewTag] = useState('');
+        const [newLocation, setNewLocation] = useState('');
+
+        const handleSave = () => {
+            onSaveSettings({ type: 'UPDATE_SETTINGS', payload: currentSettings });
+        };
+
+        const addTag = () => {
+            if (newTag && !currentSettings.tags.includes(newTag)) {
+                setCurrentSettings(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
+                setNewTag('');
+            }
+        };
+
+        const removeTag = (tag) => {
+            setCurrentSettings(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tag) }));
+        };
+        
+        const addLocation = () => {
+            if (newLocation && !currentSettings.locations.includes(newLocation)) {
+                setCurrentSettings(prev => ({ ...prev, locations: [...prev.locations, newLocation] }));
+                setNewLocation('');
+            }
+        };
+        
+        const removeLocation = (loc) => {
+            setCurrentSettings(prev => ({ ...prev, locations: prev.locations.filter(l => l !== loc) }));
+        };
+
+        return (
+            <div className="space-y-6 max-w-2xl">
+                <div className="p-4 border rounded bg-gray-50">
+                    <h3 className="font-bold mb-2">TAGs de Equipamentos</h3>
+                    <div className="flex gap-2">
+                        <input value={newTag} onChange={e => setNewTag(e.target.value)} className="border p-2 flex-1 rounded" placeholder="Nova TAG" />
+                        <button onClick={addTag} className="bg-blue-600 text-white px-4 rounded font-bold hover:bg-blue-700">Adicionar</button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                        {currentSettings.tags?.map(tag => (
+                            <span key={tag} className="bg-gray-200 px-3 py-1 rounded-full flex items-center gap-2 text-sm">{tag} <button onClick={() => removeTag(tag)} className="text-red-500 font-bold text-lg leading-none">&times;</button></span>
+                        ))}
+                    </div>
+                </div>
+                <div className="p-4 border rounded bg-gray-50">
+                    <h3 className="font-bold mb-2">Locais</h3>
+                    <div className="flex gap-2">
+                        <input value={newLocation} onChange={e => setNewLocation(e.target.value)} className="border p-2 flex-1 rounded" placeholder="Novo Local" />
+                        <button onClick={addLocation} className="bg-blue-600 text-white px-4 rounded font-bold hover:bg-blue-700">Adicionar</button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                        {currentSettings.locations?.map(loc => (
+                            <span key={loc} className="bg-gray-200 px-3 py-1 rounded-full flex items-center gap-2 text-sm">{loc} <button onClick={() => removeLocation(loc)} className="text-red-500 font-bold text-lg leading-none">&times;</button></span>
+                        ))}
+                    </div>
+                </div>
+                <div className="p-4 border rounded bg-gray-50">
+                    <h3 className="font-bold mb-2">Configurações de Rede</h3>
+                     <label className="block text-sm font-bold text-gray-700">IP do Servidor (Rede Local)</label>
+                     <input value={currentSettings.registeredNetwork || ''} onChange={e => setCurrentSettings({...currentSettings, registeredNetwork: e.target.value})} className="border p-2 w-full rounded mt-1" placeholder="Ex: 192.168.1.100" />
+                     <p className="text-xs text-gray-500 mt-1">IP local detectado: {localIP || 'N/A'}</p>
+                </div>
+                <button onClick={handleSave} className="bg-green-600 text-white px-6 py-3 rounded font-bold hover:bg-green-700 text-lg flex items-center gap-2"><Icons.Save /> Salvar Configurações</button>
+            </div>
+        )
+    };
+    
+    const UserForm = ({ user, onSave, onCancel }) => {
+        const [formData, setFormData] = useState(user || { name: '', matricula: '', password: '', role: 'user' });
+        const isNew = !user;
+
+        const handleChange = (e) => {
+            setFormData({ ...formData, [e.target.name]: e.target.value });
+        };
+        
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            if(!formData.name || !formData.matricula || !formData.password) {
+                alert("Preencha todos os campos.");
+                return;
+            }
+            onSave(formData);
+        };
+
+        return (
+            <form onSubmit={handleSubmit} className="p-4 border rounded bg-yellow-50 my-4 space-y-3">
+                <h4 className="font-bold">{isNew ? 'Novo Usuário' : 'Editar Usuário'}</h4>
+                <input name="name" value={formData.name} onChange={handleChange} placeholder="Nome" className="w-full p-2 border rounded" />
+                <input name="matricula" value={formData.matricula} onChange={handleChange} placeholder="Matrícula" disabled={!isNew} className="w-full p-2 border rounded disabled:bg-gray-200" />
+                <input name="password" value={formData.password} onChange={handleChange} placeholder="Senha" type="password" className="w-full p-2 border rounded" />
+                <select name="role" value={formData.role} onChange={handleChange} className="w-full p-2 border rounded">
+                    <option value="user">Usuário</option>
+                    <option value="admin">Admin</option>
+                </select>
                 <div className="flex gap-2">
-                    <button onClick={() => alert('Programação salva!')} className="bg-blue-600 text-white px-3 py-1 rounded font-bold text-sm flex items-center shadow hover:bg-blue-700">
-                        <Icons.Save className="w-4 h-4 mr-2" /> Salvar
-                    </button>
-                    <button onClick={handleClearSchedule} className="bg-red-600 text-white px-3 py-1 rounded font-bold text-sm flex items-center shadow hover:bg-red-700">
-                        <Icons.Trash className="w-4 h-4 mr-2" /> Limpar Tudo
-                    </button>
+                    <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">Salvar</button>
+                    <button type="button" onClick={onCancel} className="bg-gray-300 px-4 py-2 rounded">Cancelar</button>
                 </div>
-            </div>
+            </form>
+        );
+    };
 
-            <div className="bg-gray-100 p-4 rounded-lg border mb-6">
-                <div className="flex items-center gap-4">
-                    <button onClick={() => setShowAdd(!showAdd)} className="bg-gray-800 text-white px-3 py-1 rounded font-bold text-sm flex items-center shadow hover:bg-gray-900">
-                        <Icons.Pen className="w-4 h-4 mr-2" /> {showAdd ? 'Fechar Edição' : 'Adicionar Item Manual'}
-                    </button>
-                    <button onClick={() => setShowImport(!showImport)} className="bg-blue-50 text-blue-700 px-3 py-1 rounded font-bold text-xs flex items-center hover:bg-blue-100 border border-blue-200">
-                        <Icons.Upload className="w-4 h-4 mr-2" /> {showImport ? 'Fechar Importador' : 'Importar (PDF / Excel)'}
-                    </button>
-                </div>
+    const UsersTab = () => {
+        const [showForm, setShowForm] = useState(false);
+        const [editingUser, setEditingUser] = useState(null);
 
-                {showImport && (
-                <div className="mt-4 bg-white p-4 rounded-lg border-2 border-blue-500 shadow-lg animate-in fade-in slide-in-from-top-4">
-                    <h3 className="font-bold text-md mb-4 text-blue-900 flex items-center"><Icons.Upload className="mr-2 w-5 h-5"/> IMPORTAR DADOS</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-red-50 p-3 rounded border border-red-100 relative group">
-                            <p className="text-sm font-bold text-red-900 mb-2">Importar de PDF</p>
-                            <div className="border-2 border-dashed border-red-300 p-4 rounded text-center bg-white hover:bg-red-50/50 transition-colors cursor-pointer relative">
-                                {loadingPdf ? (
-                                    <div className="text-red-600 animate-pulse"><Icons.Cpu className="w-8 h-8 mx-auto mb-1 animate-spin" /> Lendo PDF...</div>
-                                ) : ( <>
-                                    <input type="file" id="pdfUploadAdmin" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" accept=".pdf" onChange={handlePdfUpload} />
-                                    <Icons.File className="w-8 h-8 text-red-400 mb-1 mx-auto" />
-                                    <span className="text-xs font-bold text-red-600">SELECIONAR ARQUIVO PDF</span>
-                                </>)}
-                            </div>
-                        </div>
-                        <div className="bg-green-50 p-3 rounded border border-green-100">
-                             <p className="text-sm font-bold text-green-900 mb-2">Copiar e Colar (Excel)</p>
-                             <textarea className="w-full p-2 border rounded h-20 text-xs font-mono" placeholder="Cole os dados aqui..." value={importText} onChange={e => setImportText(e.target.value)} />
-                             <button onClick={handleImportText} className="w-full bg-green-600 text-white px-3 py-1 rounded text-sm font-bold shadow hover:bg-green-700 mt-1">PROCESSAR</button>
-                        </div>
-                    </div>
-                </div>
-                )}
-                {showAdd && (
-                <div className="mt-4 bg-white p-4 rounded border-2 border-yellow-400 shadow-lg">
-                    <h3 className="font-bold text-sm mb-2">Novo Item Manual</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
-                        <input className="border p-1 rounded text-xs" placeholder="OM/FROTA" value={newItem.omFrota} onChange={e => setNewItem({...newItem, omFrota: e.target.value})} />
-                        <input className="border p-1 rounded text-xs col-span-2" placeholder="Descrição" value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} />
-                        <input className="border p-1 rounded text-xs" placeholder="Centro Trab." value={newItem.workCenter} onChange={e => setNewItem({...newItem, workCenter: e.target.value})} />
-                        <input type="date" className="border p-1 rounded text-xs" value={newItem.startDate} onChange={e => setNewItem({...newItem, startDate: e.target.value})} />
-                        <input className="border p-1 rounded text-xs" placeholder="H. Início" value={newItem.startTime} onChange={e => setNewItem({...newItem, startTime: e.target.value})} />
-                        <input className="border p-1 rounded text-xs" placeholder="H. Fim" value={newItem.endTime} onChange={e => setNewItem({...newItem, endTime: e.target.value})} />
-                        <input className="border p-1 rounded text-xs" placeholder="Recurso" value={newItem.resource} onChange={e => setNewItem({...newItem, resource: e.target.value})} />
-                         <button onClick={handleAdd} className="bg-yellow-500 text-black px-4 py-1 rounded font-bold text-xs hover:bg-yellow-400 shadow col-span-full">ADICIONAR</button>
-                    </div>
-                </div>
-                )}
-            </div>
+        const handleSave = (user) => {
+            onDataChange({ type: 'UPDATE_USER', payload: user });
+            setShowForm(false);
+            setEditingUser(null);
+        };
 
-            <div className="border rounded overflow-hidden max-h-[500px] overflow-y-auto">
-                <table className="w-full text-xs">
-                    <thead className="bg-gray-200 sticky top-0">
-                        <tr>
-                            <th className="p-2 text-left">FROTA/OM</th>
-                            <th className="p-2 text-left">Descrição</th>
-                            <th className="p-2 text-left">Data</th>
-                            <th className="p-2 text-center">Ação</th>
-                        </tr>
-                    </thead>
+        const handleDelete = (matricula) => {
+            if(window.confirm('Tem certeza que deseja excluir este usuário?')) {
+                onDataChange({ type: 'DELETE_USER', payload: matricula });
+            }
+        };
+
+        return (
+            <div>
+                {!showForm && <button onClick={() => setShowForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded mb-4">Adicionar Usuário</button>}
+                {showForm && <UserForm user={editingUser} onSave={handleSave} onCancel={() => { setShowForm(false); setEditingUser(null); }} />}
+                
+                <table className="w-full text-left">
+                    <thead className="border-b"><tr><th className="p-2">Nome</th><th className="p-2">Matrícula</th><th className="p-2">Função</th><th className="p-2 text-center">Ações</th></tr></thead>
                     <tbody>
-                        {schedule.map(item => (
-                            <tr key={item.id} className="border-t hover:bg-yellow-50">
-                                <td className="p-2 font-bold">{item.omFrota}</td>
-                                <td className="p-2">{item.description}</td>
-                                <td className="p-2">{item.startDate}</td>
-                                <td className="p-2 text-center">
-                                    <button onClick={() => handleDeleteItem(item.id)} className="p-1 text-red-500 hover:bg-red-100 rounded">
-                                        <Icons.Trash size={16} />
-                                    </button>
+                        {users.map(u => (
+                            <tr key={u.matricula} className="border-b">
+                                <td className="p-2">{u.name}</td>
+                                <td className="p-2">{u.matricula}</td>
+                                <td className="p-2">{u.role}</td>
+                                <td className="p-2 flex justify-center gap-2">
+                                    <button onClick={() => { setEditingUser(u); setShowForm(true); }} className="p-2 bg-yellow-100 text-yellow-700 rounded"><Icons.Edit size={16} /></button>
+                                    <button onClick={() => handleDelete(u.matricula)} className="p-2 bg-red-100 text-red-700 rounded"><Icons.Trash size={16} /></button>
                                 </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
-        </div>
-    )
-}
+        )
+    };
+    
+    const EmployeeForm = ({ employee, onSave, onCancel }) => {
+        const [formData, setFormData] = useState(employee || { name: '', matricula: '', role: 'Técnico' });
+        const isNew = !employee;
 
-const ScreenAdminSettings = ({ settings, onSaveSettings, adminScreenProps, activeTab, setActiveTab }) => {
-  const [localSettings, setLocalSettings] = useState(settings);
+        const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+        
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            if(!formData.name || !formData.matricula || !formData.role) {
+                alert("Preencha todos os campos."); return;
+            }
+            onSave(formData);
+        };
 
-  const handleSave = () => {
-    onSaveSettings({ type: 'UPDATE_SETTINGS', payload: localSettings });
-    alert("Configurações salvas com sucesso!");
-  };
-
-  const handleAddTag = () => {
-    const newTag = prompt("Nova TAG:");
-    if (newTag && !localSettings.tags.includes(newTag)) {
-        setLocalSettings(prev => ({...prev, tags: [...prev.tags, newTag]}));
-    }
-  };
-  
-  const handleAddLoc = () => {
-    const newLoc = prompt("Novo Local:");
-    if (newLoc && !localSettings.locations.includes(newLoc)) {
-        setLocalSettings(prev => ({...prev, locations: [...prev.locations, newLoc]}));
-    }
-  };
-
-
-  return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <h2 className="text-3xl font-bold mb-6 flex items-center"><Icons.Settings className="mr-2"/> CONFIGURAÇÕES GERAIS</h2>
-      
-      {/* TABS HEADER */}
-      <div className="flex gap-1 mb-6 border-b overflow-x-auto">
-          <button onClick={() => setActiveTab('general')} className={`px-6 py-3 font-bold rounded-t-lg ${activeTab === 'general' ? 'bg-black text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>GERAL & REDE</button>
-          <button onClick={() => setActiveTab('employees')} className={`px-6 py-3 font-bold rounded-t-lg ${activeTab === 'employees' ? 'bg-black text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>FUNCIONÁRIOS</button>
-          <button onClick={() => setActiveTab('users')} className={`px-6 py-3 font-bold rounded-t-lg ${activeTab === 'users' ? 'bg-black text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>USUÁRIOS SISTEMA</button>
-          <button onClick={() => setActiveTab('programming')} className={`px-6 py-3 font-bold rounded-t-lg ${activeTab === 'programming' ? 'bg-black text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>GERENCIAR PROGRAMAÇÃO</button>
-          <button onClick={() => setActiveTab('external_art')} className={`px-6 py-3 font-bold rounded-t-lg ${activeTab === 'external_art' ? 'bg-black text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>CADASTRAR ART (PDF)</button>
-      </div>
-
-      <div className="bg-white p-6 rounded-b-lg shadow min-h-[500px]">
-        {activeTab === 'general' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* NETWORK CONFIG */}
-                <div className="md:col-span-2 bg-gray-50 p-4 rounded border border-gray-300">
-                    <h3 className="font-bold text-lg mb-4 flex items-center"><Icons.Wifi className="mr-2"/> REDE E CONEXÃO</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block font-bold text-sm mb-1">Nome da Rede Wi-Fi / Conexão</label>
-                            <input 
-                                className="w-full border p-2 rounded" 
-                                value={localSettings.wifiName} 
-                                onChange={e => setLocalSettings({...localSettings, wifiName: e.target.value})}
-                                placeholder="Ex: WIFI-MINERADORA-01"
-                            />
-                        </div>
-                        <div>
-                            <label className="block font-bold text-sm mb-1">Caminho da Rede / Banco de Dados</label>
-                            <input 
-                                className="w-full border p-2 rounded" 
-                                value={localSettings.registeredNetwork} 
-                                onChange={e => setLocalSettings({...localSettings, registeredNetwork: e.target.value})}
-                                placeholder="Ex: \\servidor\dados\app"
-                            />
-                        </div>
-                        <div>
-                            <label className="block font-bold text-sm mb-1">Usuário de Rede</label>
-                            <input 
-                                className="w-full border p-2 rounded" 
-                                value={localSettings.networkUser} 
-                                onChange={e => setLocalSettings({...localSettings, networkUser: e.target.value})}
-                                placeholder="Ex: admin_rede"
-                            />
-                        </div>
-                        <div>
-                            <label className="block font-bold text-sm mb-1">Senha de Rede</label>
-                            <input 
-                                type="password"
-                                className="w-full border p-2 rounded" 
-                                value={localSettings.networkPassword} 
-                                onChange={e => setLocalSettings({...localSettings, networkPassword: e.target.value})}
-                                placeholder="********"
-                            />
-                        </div>
-                    </div>
-                    <button onClick={handleSave} className="mt-4 bg-blue-600 text-white px-4 py-2 rounded font-bold">SALVAR CONFIGURAÇÕES DE REDE</button>
+        return (
+            <form onSubmit={handleSubmit} className="p-4 border rounded bg-yellow-50 my-4 space-y-3">
+                <h4 className="font-bold">{isNew ? 'Novo Funcionário' : 'Editar Funcionário'}</h4>
+                <input name="name" value={formData.name} onChange={handleChange} placeholder="Nome" className="w-full p-2 border rounded" />
+                <input name="matricula" value={formData.matricula} onChange={handleChange} placeholder="Matrícula" disabled={!isNew} className="w-full p-2 border rounded disabled:bg-gray-200" />
+                <input name="role" value={formData.role} onChange={handleChange} placeholder="Função" className="w-full p-2 border rounded" />
+                <div className="flex gap-2">
+                    <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">Salvar</button>
+                    <button type="button" onClick={onCancel} className="bg-gray-300 px-4 py-2 rounded">Cancelar</button>
                 </div>
+            </form>
+        );
+    };
 
-                <div className="md:col-span-2 bg-gray-50 p-4 rounded border border-gray-300 mt-0">
-                    <h3 className="font-bold text-lg mb-4 flex items-center"><Icons.Lock className="mr-2"/> SEGURANÇA E CRIPTOGRAFIA</h3>
-                    <div className="flex items-center justify-between bg-white p-4 border rounded">
-                        <div>
-                            <p className="font-bold text-green-700 flex items-center"><Icons.CheckSquare className="w-4 h-4 mr-2"/> Certificado SSL Válido</p>
-                            <p className="text-xs text-gray-500">Emitido para: {settings.wifiName || 'localhost'}</p>
-                            <p className="text-xs text-gray-500">Expira em: 365 dias</p>
-                        </div>
-                        <div className="text-right">
-                             <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-bold border border-green-200">ATIVO</span>
-                        </div>
-                    </div>
-                </div>
+    const EmployeesTab = () => {
+        const [showForm, setShowForm] = useState(false);
+        const [editingEmployee, setEditingEmployee] = useState(null);
 
-                <div>
-                    <h3 className="font-bold mb-2">Tags Cadastradas</h3>
-                    <div className="flex gap-2 mb-2">
-                         <button onClick={handleAddTag} className="w-full bg-green-600 text-white px-4 py-2 rounded font-bold">Adicionar TAG</button>
-                    </div>
-                    <div className="border p-2 h-48 overflow-y-auto bg-gray-50 rounded">
-                        {localSettings.tags.map(t => <div key={t} className="border-b p-1">{t}</div>)}
-                    </div>
-                </div>
-                <div>
-                    <h3 className="font-bold mb-2">Locais de Trabalho</h3>
-                    <div className="flex gap-2 mb-2">
-                        <button onClick={handleAddLoc} className="w-full bg-green-600 text-white px-4 py-2 rounded font-bold">Adicionar Local</button>
-                    </div>
-                    <div className="border p-2 h-48 overflow-y-auto bg-gray-50 rounded">
-                        {localSettings.locations.map(l => <div key={l} className="border-b p-1">{l}</div>)}
-                    </div>
-                </div>
-                <div className="md:col-span-2">
-                    <button onClick={handleSave} className="mt-4 w-full bg-black text-white px-4 py-3 rounded font-bold text-lg">SALVAR TODAS AS CONFIGURAÇÕES</button>
+        const handleSave = (employee) => {
+            onDataChange({ type: 'UPDATE_EMPLOYEE', payload: employee });
+            setShowForm(false); setEditingEmployee(null);
+        };
+        
+        const handleDelete = (matricula) => {
+            if(window.confirm('Tem certeza?')) {
+                onDataChange({ type: 'DELETE_EMPLOYEE', payload: matricula });
+            }
+        };
+
+        return (
+            <div>
+                {!showForm && <button onClick={() => setShowForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded mb-4">Adicionar Funcionário</button>}
+                {showForm && <EmployeeForm employee={editingEmployee} onSave={handleSave} onCancel={() => { setShowForm(false); setEditingEmployee(null); }} />}
+                
+                <table className="w-full text-left">
+                    <thead className="border-b"><tr><th className="p-2">Nome</th><th className="p-2">Matrícula</th><th className="p-2">Função</th><th className="p-2 text-center">Ações</th></tr></thead>
+                    <tbody>
+                        {employees.map(e => (
+                            <tr key={e.matricula} className="border-b">
+                                <td className="p-2">{e.name}</td>
+                                <td className="p-2">{e.matricula}</td>
+                                <td className="p-2">{e.role}</td>
+                                <td className="p-2 flex justify-center gap-2">
+                                    <button onClick={() => { setEditingEmployee(e); setShowForm(true); }} className="p-2 bg-yellow-100 text-yellow-700 rounded"><Icons.Edit size={16} /></button>
+                                    <button onClick={() => handleDelete(e.matricula)} className="p-2 bg-red-100 text-red-700 rounded"><Icons.Trash size={16} /></button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        )
+    };
+
+    const ScheduleTab = () => {
+        const [csvData, setCsvData] = useState('');
+
+        const handleParse = () => {
+            try {
+                const lines = csvData.trim().split('\n');
+                const headers = lines[0].split(',').map(h => h.trim());
+                const newSchedule = lines.slice(1).map((line, index) => {
+                    const values = line.split(',');
+                    const item = headers.reduce((obj, header, i) => {
+                        obj[header] = values[i]?.trim();
+                        return obj;
+                    // FIX: The type of `item` was inferred as `{}`, preventing assignment to `item.id`. Casting the initial value for reduce to `Record<string, any>` resolves this.
+                    }, {} as Record<string, any>);
+                    item.id = `SCH-${Date.now()}-${index}`; // Generate a unique ID
+                    return item;
+                });
+                onScheduleChange(newSchedule);
+                alert(`${newSchedule.length} itens da programação importados com sucesso!`);
+            } catch (e) {
+                alert('Erro ao importar CSV. Verifique o formato.');
+                console.error(e);
+            }
+        };
+
+        return (
+            <div>
+                <h3 className="font-bold mb-2">Importar Programação (CSV)</h3>
+                <p className="text-sm text-gray-600 mb-2">Cole o conteúdo do seu arquivo CSV abaixo. A primeira linha deve ser o cabeçalho.</p>
+                <p className="text-xs text-gray-500 mb-2 font-mono">Ex: omFrota,description,startDate,endDate,resource,workCenter,priority,startTime,endTime</p>
+                <textarea 
+                    value={csvData} 
+                    onChange={e => setCsvData(e.target.value)} 
+                    className="w-full h-64 border p-2 font-mono text-xs" 
+                    placeholder="Cole os dados do CSV aqui..."
+                />
+                <button onClick={handleParse} className="bg-green-600 text-white px-4 py-2 rounded mt-2">Importar</button>
+
+                <h3 className="font-bold mt-6 mb-2">Programação Atual ({schedule.length} itens)</h3>
+                <div className="max-h-96 overflow-y-auto border rounded">
+                    <table className="w-full text-left text-xs">
+                        <thead className="bg-gray-100"><tr><th className="p-2">OM</th><th className="p-2">Descrição</th><th className="p-2">Data</th></tr></thead>
+                        <tbody>
+                            {schedule.map(item => (
+                                <tr key={item.id} className="border-b">
+                                    <td className="p-2">{item.omFrota}</td>
+                                    <td className="p-2">{item.description}</td>
+                                    <td className="p-2">{item.startDate}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
-        )}
+        );
+    };
 
-        {activeTab === 'employees' && <ScreenEmployeeRegister employees={adminScreenProps.employees} onSave={adminScreenProps.onDataChange} onDelete={adminScreenProps.onDataChange} />}
-        {activeTab === 'users' && <ScreenAdminUsers users={adminScreenProps.users} onSave={adminScreenProps.onDataChange} onDelete={adminScreenProps.onDataChange} />}
-        {activeTab === 'programming' && <ProgrammingManagementPanel schedule={adminScreenProps.schedule} onScheduleChange={adminScreenProps.onScheduleChange} />}
-        {activeTab === 'external_art' && <ScreenExternalArt onSave={adminScreenProps.onDataChange} editingDoc={adminScreenProps.editingDoc} />}
-      </div>
-    </div>
-  );
+    return (
+        <div className="p-6 h-full flex flex-col">
+            <h2 className="text-3xl font-bold mb-6 flex items-center"><Icons.Settings className="mr-2"/> Configurações de Administrador</h2>
+            <div className="flex border-b mb-6 overflow-x-auto">
+                {tabs.map(tab => (
+                    <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-shrink-0 flex items-center gap-2 px-4 py-3 font-bold text-sm ${activeTab === tab.id ? 'border-b-4 border-yellow-500 text-black' : 'text-gray-500 hover:bg-gray-100'}`}>
+                        <tab.icon className="w-5 h-5" />
+                        <span>{tab.label}</span>
+                    </button>
+                ))}
+            </div>
+            <div className="flex-1 overflow-y-auto">
+                {activeTab === 'general' && <GeneralSettingsTab />}
+                {activeTab === 'users' && <UsersTab />}
+                {activeTab === 'employees' && <EmployeesTab />}
+                {activeTab === 'schedule' && <ScheduleTab />}
+                {activeTab === 'external_art' && <ScreenExternalArt onSave={onDataChange} editingDoc={editingDoc} />}
+            </div>
+        </div>
+    )
 };
 
-const ScreenFileDocuments = ({ docs, onView, onDownload, onEdit, onDelete, onSendToNetwork }) => {
-  const [search, setSearch] = useState('');
-  const filtered = docs.filter(d => 
-      d.taskName?.toLowerCase().includes(search.toLowerCase()) ||
-      d.om?.includes(search) ||
-      d.tag?.includes(search) ||
-      d.fileName?.toLowerCase().includes(search.toLowerCase())
-  );
 
-  return (
-    <div className="p-6">
-       <div className="bg-white p-6 rounded shadow">
-           <h2 className="text-2xl font-bold mb-6 flex items-center"><Icons.Folder className="mr-2"/> ARQUIVO DOCUMENTOS (GERAL)</h2>
-           <div className="mb-4">
-               <input 
-                  className="w-full p-3 border rounded bg-gray-50" 
-                  placeholder="Pesquisar por Tarefa, OM, TAG ou Nome do Arquivo..." 
-                  value={search} 
-                  onChange={e => setSearch(e.target.value)}
-               />
-           </div>
-           <div className="overflow-x-auto">
-               <table className="w-full text-left border-collapse">
-                   <thead className="bg-gray-100">
-                       <tr>
-                           <th className="p-3">Tipo</th>
-                           <th className="p-3">Identificação</th>
-                           <th className="p-3">Data/Hora</th>
-                           <th className="p-3 text-center">Gerenciamento</th>
-                       </tr>
-                   </thead>
-                   <tbody>
-                       {filtered.map(doc => (
-                           <tr key={doc.id} className="border-b hover:bg-gray-50">
-                               <td className="p-3 font-bold text-xs uppercase">{doc.type}</td>
-                               <td className="p-3">
-                                   <div className="font-bold">{doc.taskName || doc.fileName}</div>
-                                   <div className="text-xs text-gray-500">{doc.om} | {doc.tag} | ID: {doc.maintenanceId || doc.id}</div>
-                               </td>
-                               <td className="p-3 text-sm">{doc.date} {doc.time}</td>
-                               <td className="p-3">
-                                   <div className="flex justify-center gap-2">
-                                       <button onClick={() => onView(doc)} className="px-3 py-1 bg-blue-100 text-blue-800 rounded text-xs font-bold hover:bg-blue-200 flex items-center"><Icons.Eye size={14} className="mr-1"/> VER</button>
-                                       <button onClick={() => onDownload(doc)} className="px-3 py-1 bg-green-100 text-green-800 rounded text-xs font-bold hover:bg-green-200 flex items-center"><Icons.Download size={14} className="mr-1"/> PDF</button>
-                                       <button onClick={() => onEdit(doc)} className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-bold hover:bg-yellow-200 flex items-center"><Icons.Edit size={14} className="mr-1"/> EDIT</button>
-                                       <button onClick={() => onDelete({ type: 'DELETE_DOC', payload: doc.id })} className="px-3 py-1 bg-red-100 text-red-800 rounded text-xs font-bold hover:bg-red-200 flex items-center"><Icons.Trash size={14} className="mr-1"/> DEL</button>
-                                       <button onClick={() => onSendToNetwork(doc)} className="px-3 py-1 bg-gray-100 text-gray-800 rounded text-xs font-bold hover:bg-gray-200 flex items-center"><Icons.Server size={14} className="mr-1"/> REDE</button>
-                                   </div>
-                               </td>
-                           </tr>
-                       ))}
-                   </tbody>
-               </table>
-           </div>
-       </div>
-    </div>
-  );
-};
-
-const Sidebar = ({ activeScreen, setActiveScreen, onLogout, isAdmin, isOnline, isCollapsed, onToggleCollapse }) => {
+// FIX: Add onLogout to Sidebar props to resolve undefined error.
+const Sidebar = ({ isAdmin, isOnline, isCollapsed, onToggleCollapse, localIP, onLogout }) => {
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Icons.Activity },
-    { id: 'emergencial', label: 'ART Emergencial', icon: Icons.AlertTriangle },
-    { id: 'atividade', label: 'ART Atividade', icon: Icons.ClipboardList },
-    { id: 'checklist', label: 'Checklist', icon: Icons.CheckSquare },
-    { id: 'reports', label: 'Relatórios', icon: Icons.FileText },
-    { id: 'programming', label: 'Programação', icon: Icons.Calendar },
-    { id: 'history', label: 'Histórico Doc.', icon: Icons.Clock },
-    { id: 'file_documents', label: 'Arquivo Documentos', icon: Icons.Folder },
+    { id: 'dashboard', label: 'Dashboard', icon: Icons.Activity, path: '/' },
+    { id: 'emergencial', label: 'ART Emergencial', icon: Icons.AlertTriangle, path: '/emergencial' },
+    { id: 'atividade', label: 'ART Atividade', icon: Icons.ClipboardList, path: '/atividade' },
+    { id: 'checklist', label: 'Checklist', icon: Icons.CheckSquare, path: '/checklist' },
+    { id: 'reports', label: 'Relatórios', icon: Icons.FileText, path: '/reports' },
+    { id: 'programming', label: 'Programação', icon: Icons.Calendar, path: '/programming' },
+    { id: 'file_documents', label: 'Arquivo Documentos', icon: Icons.Folder, path: '/file_documents' },
   ];
 
   if (isAdmin) {
-      menuItems.push({ id: 'admin_settings', label: 'Configurações', icon: Icons.Settings });
+      menuItems.push({ id: 'admin_settings', label: 'Configurações', icon: Icons.Settings, path: '/admin_settings' });
   }
 
   return (
@@ -3189,25 +3370,41 @@ const Sidebar = ({ activeScreen, setActiveScreen, onLogout, isAdmin, isOnline, i
             <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}></div>
             {!isCollapsed && <p className={`text-xs uppercase font-bold ${isOnline ? 'text-green-400' : 'text-red-400'}`}>{isOnline ? 'Online' : 'Offline'}</p>}
         </div>
+         {!isCollapsed && localIP && (
+            <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
+                <Icons.Server size={12} />
+                <span>IP: {localIP}</span>
+            </div>
+        )}
       </div>
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         {menuItems.map(item => (
-          <button
+          <NavLink
             key={item.id}
-            onClick={() => setActiveScreen(item.id)}
-            className={`w-full flex items-center p-3 rounded transition-all duration-200 ${isCollapsed ? 'justify-center' : ''} ${activeScreen === item.id ? 'bg-yellow-500 text-black font-bold' : 'hover:bg-gray-800 text-gray-300 hover:text-white'}`}
+            to={item.path}
+            end // Match root path exactly
+            className={({ isActive }) => `w-full flex items-center p-3 rounded transition-all duration-200 ${isCollapsed ? 'justify-center' : ''} ${isActive ? 'bg-yellow-500 text-black font-bold' : 'hover:bg-gray-800 text-gray-300 hover:text-white'}`}
             title={item.label}
           >
             <item.icon className={`w-5 h-5 ${!isCollapsed && 'mr-3'}`} />
             {!isCollapsed && <span>{item.label}</span>}
-          </button>
+          </NavLink>
         ))}
+         <NavLink
+            key="trash"
+            to="/trash"
+            className={({ isActive }) => `w-full flex items-center p-3 rounded transition-all duration-200 ${isCollapsed ? 'justify-center' : ''} ${isActive ? 'bg-yellow-500 text-black font-bold' : 'hover:bg-gray-800 text-gray-300 hover:text-white'}`}
+            title="Lixeira"
+          >
+            <Icons.Trash className={`w-5 h-5 ${!isCollapsed && 'mr-3'}`} />
+            {!isCollapsed && <span>Lixeira</span>}
+          </NavLink>
       </nav>
       <div className="p-4 border-t border-gray-800">
-        <button onClick={onLogout} title="Sair" className={`w-full flex items-center p-3 text-red-400 hover:bg-red-900/20 rounded transition-colors ${isCollapsed ? 'justify-center' : ''}`}>
+        <NavLink to="#" onClick={onLogout} title="Sair" className={`w-full flex items-center p-3 text-red-400 hover:bg-red-900/20 rounded transition-colors ${isCollapsed ? 'justify-center' : ''}`}>
           <Icons.LogOut className={`w-5 h-5 ${!isCollapsed && 'mr-3'}`} />
           {!isCollapsed && <span>Sair</span>}
-        </button>
+        </NavLink>
         <button onClick={onToggleCollapse} className="w-full flex justify-center items-center p-3 text-gray-400 hover:bg-gray-800 rounded mt-2">
           {isCollapsed ? <Icons.ChevronRight /> : <Icons.ChevronLeft />}
         </button>
@@ -3216,20 +3413,20 @@ const Sidebar = ({ activeScreen, setActiveScreen, onLogout, isAdmin, isOnline, i
   );
 };
 
-const MobileSidebar = ({ activeScreen, setActiveScreen, onLogout, isAdmin, isOpen, onClose }) => {
+// FIX: Add onLogout prop and use it for the logout button to ensure correct functionality.
+const MobileSidebar = ({ isAdmin, isOpen, onClose, onLogout }) => {
     const menuItems = [
-      { id: 'dashboard', label: 'Dashboard', icon: Icons.Activity },
-      { id: 'emergencial', label: 'ART Emergencial', icon: Icons.AlertTriangle },
-      { id: 'atividade', label: 'ART Atividade', icon: Icons.ClipboardList },
-      { id: 'checklist', label: 'Checklist', icon: Icons.CheckSquare },
-      { id: 'reports', label: 'Relatórios', icon: Icons.FileText },
-      { id: 'programming', label: 'Programação', icon: Icons.Calendar },
-      { id: 'history', label: 'Histórico Doc.', icon: Icons.Clock },
-      { id: 'file_documents', label: 'Arquivo Documentos', icon: Icons.Folder },
+      { id: 'dashboard', label: 'Dashboard', icon: Icons.Activity, path: '/' },
+      { id: 'emergencial', label: 'ART Emergencial', icon: Icons.AlertTriangle, path: '/emergencial' },
+      { id: 'atividade', label: 'ART Atividade', icon: Icons.ClipboardList, path: '/atividade' },
+      { id: 'checklist', label: 'Checklist', icon: Icons.CheckSquare, path: '/checklist' },
+      { id: 'reports', label: 'Relatórios', icon: Icons.FileText, path: '/reports' },
+      { id: 'programming', label: 'Programação', icon: Icons.Calendar, path: '/programming' },
+      { id: 'file_documents', label: 'Arquivo Documentos', icon: Icons.Folder, path: '/file_documents' },
     ];
 
     if (isAdmin) {
-        menuItems.push({ id: 'admin_settings', label: 'Configurações', icon: Icons.Settings });
+        menuItems.push({ id: 'admin_settings', label: 'Configurações', icon: Icons.Settings, path: '/admin_settings' });
     }
   
     return (
@@ -3245,29 +3442,39 @@ const MobileSidebar = ({ activeScreen, setActiveScreen, onLogout, isAdmin, isOpe
             </div>
             <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
                 {menuItems.map(item => (
-                <button
+                <NavLink
                     key={item.id}
-                    onClick={() => { setActiveScreen(item.id); onClose(); }}
-                    className={`w-full flex items-center p-3 rounded transition-all duration-200 ${activeScreen === item.id ? 'bg-yellow-500 text-black font-bold' : 'hover:bg-gray-800 text-gray-300'}`}
+                    to={item.path}
+                    onClick={onClose}
+                    end
+                    className={({ isActive }) => `w-full flex items-center p-3 rounded transition-all duration-200 ${isActive ? 'bg-yellow-500 text-black font-bold' : 'hover:bg-gray-800 text-gray-300'}`}
                 >
                     <item.icon className="mr-3 w-5 h-5" />
                     {item.label}
-                </button>
+                </NavLink>
                 ))}
+                 <NavLink
+                    key="trash"
+                    to="/trash"
+                    onClick={onClose}
+                    className={({ isActive }) => `w-full flex items-center p-3 rounded transition-all duration-200 ${isActive ? 'bg-yellow-500 text-black font-bold' : 'hover:bg-gray-800 text-gray-300'}`}
+                >
+                    <Icons.Trash className="mr-3 w-5 h-5" />
+                    Lixeira
+                </NavLink>
             </nav>
             <div className="p-4 border-t border-gray-800">
-                <button onClick={onLogout} className="w-full flex items-center p-3 text-red-400 hover:bg-red-900/20 rounded">
-                <Icons.LogOut className="mr-3 w-5 h-5" /> Sair
-                </button>
+                <NavLink to="#" onClick={onLogout} className="w-full flex items-center p-3 text-red-400 hover:bg-red-900/20 rounded">
+                  <Icons.LogOut className="mr-3 w-5 h-5" /> Sair
+                </NavLink>
             </div>
         </div>
       </>
     );
 };
 
-const App = () => {
+const AppContent = () => {
   const [currentUser, setCurrentUser] = useState(null);
-  const [activeScreen, setActiveScreen] = useState('dashboard');
   const [previewDoc, setPreviewDoc] = useState(null);
   const [editingDoc, setEditingDoc] = useState(null);
   const [settingsTab, setSettingsTab] = useState('general');
@@ -3277,12 +3484,14 @@ const App = () => {
   const [location, setLocation] = useState(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useCachedState('sidebarCollapsed', false);
   const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
-
+  const [localIP, setLocalIP] = useState(null);
+  const navigate = useNavigate();
 
   // Replace useState with useCachedState for persisted data
   const [users, setUsers] = useCachedState('users', []);
   const [employees, setEmployees] = useCachedState('employees', []);
   const [docs, setDocs] = useCachedState('docs', []);
+  const [deletedDocs, setDeletedDocs] = useCachedState('deletedDocs', []);
   const [settings, setSettings] = useCachedState('settings', { tags: ['TR-01', 'CV-02'], locations: ['Mina', 'Oficina'], registeredNetwork: '', wifiName: '' });
   const [activeMaintenances, setActiveMaintenances] = useCachedState('activeMaintenances', []);
   const [schedule, setSchedule] = useCachedState('schedule', []);
@@ -3302,6 +3511,7 @@ const App = () => {
     let newUsers = [...baseData.users];
     let newEmployees = [...baseData.employees];
     let newSettings = {...baseData.settings};
+    let newDeletedDocs = [...baseData.deletedDocs];
 
     queue.forEach(action => {
       switch (action.type) {
@@ -3312,7 +3522,23 @@ const App = () => {
             break;
         }
         case 'DELETE_DOC': {
-            newDocs = newDocs.filter(d => d.id !== action.payload);
+            const docToDelete = newDocs.find(d => d.id === action.payload);
+            if(docToDelete) {
+                newDocs = newDocs.filter(d => d.id !== action.payload);
+                newDeletedDocs.push({...docToDelete, deletedAt: new Date().toISOString()});
+            }
+            break;
+        }
+        case 'RESTORE_DOC': {
+            const docToRestore = newDeletedDocs.find(d => d.id === action.payload);
+            if (docToRestore) {
+                newDeletedDocs = newDeletedDocs.filter(d => d.id !== action.payload);
+                newDocs.push(docToRestore);
+            }
+            break;
+        }
+        case 'PERMANENT_DELETE_DOC': {
+            newDeletedDocs = newDeletedDocs.filter(d => d.id !== action.payload);
             break;
         }
         case 'UPDATE_MAINTENANCES': {
@@ -3373,7 +3599,7 @@ const App = () => {
             console.warn(`Unknown action type in queue: ${action.type}`);
       }
     });
-    return { newDocs, newMaintenances, newSchedule, newUsers, newEmployees, newSettings };
+    return { newDocs, newMaintenances, newSchedule, newUsers, newEmployees, newSettings, newDeletedDocs };
   }
 
   // --- Sync and Offline Logic ---
@@ -3388,7 +3614,7 @@ const App = () => {
       setToast({ message: `Sincronizando ${offlineQueue.length} alterações...`, type: 'info' });
       await new Promise(res => setTimeout(res, 1500)); // Simulate network delay
       
-      const { newDocs, newMaintenances, newSchedule, newUsers, newEmployees, newSettings } = processQueue(offlineQueue, { docs, activeMaintenances, schedule, users, employees, settings });
+      const { newDocs, newMaintenances, newSchedule, newUsers, newEmployees, newSettings, newDeletedDocs } = processQueue(offlineQueue, { docs, activeMaintenances, schedule, users, employees, settings, deletedDocs });
       
       setDocs(newDocs);
       setActiveMaintenances(newMaintenances);
@@ -3396,6 +3622,7 @@ const App = () => {
       setUsers(newUsers);
       setEmployees(newEmployees);
       setSettings(newSettings);
+      setDeletedDocs(newDeletedDocs);
   
       setOfflineQueue([]);
       setSyncStatus('synced');
@@ -3417,16 +3644,17 @@ const App = () => {
     };
   }, [isOnline]); // Rerun only when online status changes
 
-  const handleDataChange = (action) => {
+  const handleDataChange = (action, successMessage = 'Alteração salva!') => {
     if (isOnline && syncStatus === 'synced') {
-      const { newDocs, newMaintenances, newSchedule, newUsers, newEmployees, newSettings } = processQueue([action], { docs, activeMaintenances, schedule, users, employees, settings });
+      const { newDocs, newMaintenances, newSchedule, newUsers, newEmployees, newSettings, newDeletedDocs } = processQueue([action], { docs, activeMaintenances, schedule, users, employees, settings, deletedDocs });
       setDocs(newDocs);
       setActiveMaintenances(newMaintenances);
       setSchedule(newSchedule);
       setUsers(newUsers);
       setEmployees(newEmployees);
       setSettings(newSettings);
-      setToast({ message: 'Alteração salva!', type: 'success' });
+      setDeletedDocs(newDeletedDocs);
+      setToast({ message: successMessage, type: 'success' });
     } else {
       setOfflineQueue(prevQueue => [...prevQueue, action]);
       setSyncStatus('offline');
@@ -3435,10 +3663,9 @@ const App = () => {
   };
 
   const setupNotifications = async () => {
-    if ('serviceWorker' in navigator && 'PushManager' in window) {
+    if ('serviceWorker' in navigator) {
         try {
-            const swUrl = new URL('sw.js', import.meta.url).href;
-            const registration = await navigator.serviceWorker.register(swUrl);
+            const registration = await navigator.serviceWorker.register('sw.js');
             if (Notification.permission === 'granted') {
                 console.log('Notification permission already granted.');
             }
@@ -3458,8 +3685,34 @@ const App = () => {
 
   // --- App Effects ---
   useEffect(() => {
+    if (currentUser?.role !== 'admin') {
+        return; // Do nothing if not an admin
+    }
+
+    const interval = setInterval(() => {
+        try {
+            const sessionData = JSON.parse(localStorage.getItem('adminSession'));
+            if (sessionData?.sessionId !== currentUser.sessionId) {
+                handleLogout(); // This will set currentUser to null
+                alert("Outro administrador iniciou uma sessão. Você foi desconectado.");
+            }
+        } catch (e) {
+            // Ignore parsing errors
+        }
+    }, 3000); // Check every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  useEffect(() => {
     if (currentUser) {
       setupNotifications();
+       getLocalIP().then(ip => {
+        setLocalIP(ip);
+      }).catch(err => {
+        console.error("Could not get local IP", err);
+        setLocalIP('Indisponível');
+      });
       const now = new Date();
       const offset = now.getTimezoneOffset();
       const localNow = new Date(now.getTime() - (offset*60*1000));
@@ -3526,12 +3779,15 @@ const App = () => {
 
   // --- Event Handlers ---
   const handleLogin = (user) => setCurrentUser(user);
-  const handleLogout = () => setCurrentUser(null);
+  
+  const handleLogout = () => {
+    localStorage.removeItem('adminSession');
+    setCurrentUser(null);
+  };
   
   const handleStartTask = (task) => {
     if (activeMaintenances.some(m => m.programmingId === task.id && m.status !== 'finished')) {
-      alert("Esta tarefa já está em andamento no Dashboard.");
-      setActiveScreen('dashboard');
+      navigate('/');
       return;
     }
     const newMaintenance = {
@@ -3541,9 +3797,8 @@ const App = () => {
       userName: currentUser.name, userId: currentUser.matricula, location: task.workCenter,
       maintenanceType: 'preventiva', // Tasks from programming are preventive
     };
-    handleDataChange({ type: 'UPDATE_MAINTENANCES', payload: [...activeMaintenances, newMaintenance] });
-    alert("Tarefa iniciada! Verifique o Dashboard.");
-    setActiveScreen('dashboard');
+    handleDataChange({ type: 'UPDATE_MAINTENANCES', payload: [...activeMaintenances, newMaintenance] }, "Tarefa iniciada com sucesso!");
+    navigate('/');
   };
 
   const handleOpenChecklist = (maintenance) => {
@@ -3551,25 +3806,29 @@ const App = () => {
         om: maintenance.om, tag: maintenance.tag,
         taskName: maintenance.taskName, maintenanceId: maintenance.id
     });
-    setActiveScreen('checklist');
+    navigate('/checklist');
   };
 
-  const handleSaveDoc = (action) => {
+  const handleSaveDoc = (action: any) => {
       const docToSave = { ...action.payload };
       let maintenanceAction = null;
+      let successMessage = 'Documento salvo com sucesso!';
+      let maintenanceToFinish = null;
 
       if (!editingDoc && docToSave.type !== 'external') {
           docToSave.maintenanceId = `MNT-${docToSave.id}`;
       }
       
       if (docToSave.type === 'checklist') {
-          const relatedId = docToSave.maintenanceId || checklistPreFill?.maintenanceId;
-          const maintenanceToFinish = activeMaintenances.find(m => m.id === relatedId && m.status !== 'finished');
+          const relatedId = editingDoc ? editingDoc.maintenanceId : (checklistPreFill?.maintenanceId || docToSave.maintenanceId);
+          maintenanceToFinish = activeMaintenances.find(m => m.id === relatedId && m.status !== 'finished');
+
           if(maintenanceToFinish) {
               maintenanceAction = { 
                   type: 'FINISH_MAINTENANCE', 
                   payload: { maintenanceId: relatedId, endTime: new Date().toISOString() } 
               };
+              successMessage = `Checklist salvo e OM ${maintenanceToFinish.om || maintenanceToFinish.tag} encerrada!`;
           }
       } else if (docToSave.type !== 'external' && !editingDoc) {
           const newMaintenance = {
@@ -3580,29 +3839,30 @@ const App = () => {
               maintenanceType: docToSave.maintenanceType,
           };
           maintenanceAction = { type: 'ADD_MAINTENANCE', payload: newMaintenance };
+          successMessage = 'ART e nova manutenção ativa criadas com sucesso!';
       }
 
       if (maintenanceAction) {
           handleDataChange({ 
               type: 'SAVE_DOC_AND_MAINTENANCE_ACTION', 
               payload: { doc: docToSave, maintenanceAction: maintenanceAction } 
-          });
+          }, successMessage);
       } else {
-          handleDataChange({ type: 'SAVE_DOC', payload: docToSave });
+          handleDataChange({ type: 'SAVE_DOC', payload: docToSave }, successMessage);
       }
 
       setEditingDoc(null);
       setChecklistPreFill(null);
-      setActiveScreen('history');
+      navigate('/file_documents');
   };
 
   const handleEditDoc = (doc) => {
       setEditingDoc(doc);
       if (doc.type === 'external') {
           setSettingsTab('external_art');
-          setActiveScreen('admin_settings');
+          navigate('/admin_settings');
       } else {
-          setActiveScreen(doc.type);
+          navigate(`/${doc.type}`);
       }
   };
 
@@ -3621,6 +3881,17 @@ const App = () => {
          setPreviewDoc({ ...doc, autoPrint: false });
       }
   };
+  
+  const handleRestoreDoc = (id) => {
+    handleDataChange({ type: 'RESTORE_DOC', payload: id }, 'Documento restaurado com sucesso!');
+  };
+
+  const handlePermanentDelete = (id) => {
+    if (window.confirm("Tem certeza que deseja excluir este item permanentemente? Esta ação não pode ser desfeita.")) {
+      handleDataChange({ type: 'PERMANENT_DELETE_DOC', payload: id }, 'Item excluído permanentemente.');
+    }
+  };
+
 
   if (!currentUser) return <ScreenLogin onLogin={handleLogin} users={users} onUserChange={handleDataChange} />;
 
@@ -3628,21 +3899,27 @@ const App = () => {
     <div className="min-h-screen bg-gray-100 text-gray-800 font-sans flex">
       {toast && <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
       <Sidebar 
-        activeScreen={activeScreen} setActiveScreen={setActiveScreen} onLogout={handleLogout} 
         isAdmin={currentUser.role === 'admin'} isOnline={isOnline}
         isCollapsed={isSidebarCollapsed} onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        localIP={localIP}
+        onLogout={handleLogout}
       />
-      <MobileSidebar isOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} activeScreen={activeScreen} setActiveScreen={setActiveScreen} onLogout={handleLogout} isAdmin={currentUser.role === 'admin'} />
+      {/* FIX: Pass onLogout handler to MobileSidebar */}
+      <MobileSidebar isOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} isAdmin={currentUser.role === 'admin'} onLogout={handleLogout} />
       
       <div className={`flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'} flex flex-col h-screen overflow-hidden`}>
           <div className="md:hidden bg-black text-white p-4 flex justify-between items-center shadow-md z-30">
-              <h1 className="font-bold text-yellow-500 tracking-tighter text-xl">ART APP</h1>
-              <button onClick={() => setMobileMenuOpen(true)}><Icons.Menu /></button>
+              <div className="flex items-center gap-2">
+                  <Icons.ClipboardList className="w-6 h-6 text-yellow-500" />
+                  <h1 className="font-bold text-yellow-500 tracking-tighter text-xl">ART APP</h1>
+              </div>
+              <button onClick={() => setMobileMenuOpen(true)}><Icons.Menu className="w-6 h-6" /></button>
           </div>
 
           <div className="flex-1 overflow-y-auto">
-             {activeScreen === 'dashboard' && (
-                <ScreenDashboard 
+            <Routes>
+                <Route path="/" element={
+                  <ScreenDashboard 
                     currentUser={currentUser} activeMaintenances={activeMaintenances} 
                     onOpenChecklist={handleOpenChecklist} refreshData={() => {}}
                     networkName={settings.wifiName} isOnline={isOnline} location={location}
@@ -3650,22 +3927,20 @@ const App = () => {
                     onRequestNotifications={requestNotificationPermission}
                     notificationPermission={notificationPermission}
                 />
-             )}
-             {activeScreen === 'emergencial' && <ScreenArtEmergencial onSave={handleSaveDoc} employees={employees} editingDoc={editingDoc} settings={settings} />}
-             {activeScreen === 'atividade' && <ScreenArtAtividade onSave={handleSaveDoc} employees={employees} editingDoc={editingDoc} settings={settings} externalDocs={docs.filter(d => d.type === 'external')} />}
-             {activeScreen === 'checklist' && <ScreenChecklist onSave={handleSaveDoc} employees={employees} editingDoc={editingDoc} settings={settings} preFill={checklistPreFill} />}
-             {activeScreen === 'history' && <ScreenHistory docs={docs} onView={setPreviewDoc} onDownload={handleDownloadDoc} onEdit={handleEditDoc} onDelete={handleDataChange} onSendToNetwork={() => {}} activeMaintenances={activeMaintenances} />}
-             {activeScreen === 'file_documents' && <ScreenFileDocuments docs={docs} onView={setPreviewDoc} onDownload={handleDownloadDoc} onEdit={handleEditDoc} onDelete={handleDataChange} onSendToNetwork={() => {}} />}
-             
-             {activeScreen === 'reports' && <ScreenReports activeMaintenances={activeMaintenances} docs={docs} settings={settings} />}
-             {activeScreen === 'programming' && <ScreenProgramming 
-                schedule={schedule}
-                onStartTask={handleStartTask} 
-                activeMaintenances={activeMaintenances}
-             />}
-
-             {activeScreen === 'admin_settings' && (
-                 <ScreenAdminSettings 
+                } />
+                 <Route path="/emergencial" element={<ScreenArtEmergencial onSave={handleSaveDoc} employees={employees} editingDoc={editingDoc} settings={settings} />} />
+                 <Route path="/atividade" element={<ScreenArtAtividade onSave={handleSaveDoc} employees={employees} editingDoc={editingDoc} settings={settings} externalDocs={docs.filter(d => d.type === 'external')} />} />
+                 <Route path="/checklist" element={<ScreenChecklist onSave={handleSaveDoc} employees={employees} editingDoc={editingDoc} settings={settings} preFill={checklistPreFill} />} />
+                 <Route path="/file_documents" element={<ScreenFileDocuments docs={docs} onView={setPreviewDoc} onDownload={handleDownloadDoc} onEdit={handleEditDoc} onDelete={handleDataChange} onSendToNetwork={() => {}} activeMaintenances={activeMaintenances} />} />
+                 <Route path="/reports" element={<ScreenReports activeMaintenances={activeMaintenances} docs={docs} settings={settings} />} />
+                 <Route path="/programming" element={<ScreenProgramming 
+                    schedule={schedule}
+                    onStartTask={handleStartTask} 
+                    activeMaintenances={activeMaintenances}
+                 />} />
+                 <Route path="/trash" element={<ScreenTrash deletedDocs={deletedDocs} onRestore={handleRestoreDoc} onPermanentDelete={handlePermanentDelete} />} />
+                 <Route path="/admin_settings" element={
+                   <ScreenAdminSettings 
                     settings={settings} onSaveSettings={handleDataChange}
                     adminScreenProps={{ 
                       onDataChange: handleDataChange, 
@@ -3676,8 +3951,10 @@ const App = () => {
                       onScheduleChange: (newSchedule) => handleDataChange({ type: 'UPDATE_SCHEDULE', payload: newSchedule }),
                     }}
                     activeTab={settingsTab} setActiveTab={setSettingsTab}
+                    localIP={localIP}
                  />
-             )}
+                 } />
+            </Routes>
           </div>
       </div>
 
@@ -3688,6 +3965,44 @@ const App = () => {
   );
 };
 
+const generateDocSummary = (doc) => {
+    let summary = `ART APP - Resumo do Documento\n`;
+    summary += `---------------------------------\n`;
+    summary += `Tipo: ${doc.type.toUpperCase()}\n`;
+    summary += `Tarefa: ${doc.taskName || doc.fileName || 'N/A'}\n`;
+    summary += `OM: ${doc.om || 'N/A'}\n`;
+    summary += `TAG: ${doc.tag || 'N/A'}\n`;
+    summary += `Data: ${doc.date} ${doc.time}\n`;
+
+    if (doc.type === 'checklist' && doc.checks) {
+        const nokItems = Object.keys(doc.checks).filter(key => doc.checks[key] === 'nok');
+        if (nokItems.length > 0) {
+            summary += `\nItens com Não Conformidade (NOK):\n`;
+            nokItems.forEach(key => {
+                const [sysName, itemName] = key.split('-');
+                summary += `- ${itemName || key} (${doc.obs?.[key] || 'Sem obs.'})\n`;
+            });
+        } else {
+            summary += `\nStatus: Todos os itens OK.\n`;
+        }
+    }
+    
+    if (doc.signatures && doc.signatures.length > 0) {
+        summary += `\nAssinado por:\n`;
+        doc.signatures.forEach(sig => {
+            summary += `- ${sig.name} (${sig.role})\n`;
+        });
+    }
+
+    return summary;
+};
+
+
+const App = () => (
+    <HashRouter>
+        <AppContent />
+    </HashRouter>
+);
+
 const root = createRoot(document.getElementById('root'));
-// FIX: Removed extraneous text from the end of the file that was causing syntax errors.
 root.render(<App />);
